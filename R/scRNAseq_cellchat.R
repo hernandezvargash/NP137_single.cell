@@ -32,6 +32,7 @@ suppressPackageStartupMessages({
   library(celldex)
   library(ProjecTILs)
   library(ComplexHeatmap)
+  library(CellChat)
   
   
 })
@@ -39,104 +40,72 @@ suppressPackageStartupMessages({
 set.seed(170323)
 
 
-# CellChat grouped -----------------------------------
+output.dir <- "results/scRNAseq/cellchat/all.celltypes/"
 
-rm(list=ls())
 
-load(file="sc.all.celltypes.RData")
 
-DimPlot(sc.merged)
+# add categories -----------------------------------
 
-meta.Tcells <- read.csv(file="metadata.Tcells.csv", row.names = 1)
-head(meta.Tcells)
+colors <- as.vector(alphabet(n=24))
+cluster.colors = colors[1:15]
+condition.colors = c("brown","orange")
 
-#load("epithelial.RData")
-#load("Tcells.RData")
-#DimPlot(epithelial)
-#DimPlot(Tcells)
-
-Idents(epithelial) <- "epithelial"
-epithelial$cellchat.cat <- Idents(epithelial)
-Idents(Tcells)
-Tcells$cellchat.cat <- Idents(Tcells)
-DefaultAssay(Tcells) <- "SCT"
-
-sc.merged <- merge(epithelial, Tcells)
-levels(sc.merged)
+load(file="data/objects/sc.all.celltypes.RData")
 head(sc.merged[[]])
+levels(sc.merged)
+DimPlot(sc.merged, label = T)
 
-#
+# add tumor EMT class
+tumor.meta <- read.csv("results/scRNAseq/seurat/tumor.cells/tumor.metadata.csv", row.names = 1)
+head(tumor.meta)
+table(tumor.meta$EMT.class)
+EMT.low.cells <- rownames(tumor.meta[tumor.meta$EMT.class == "EMT.low", ])
+EMT.high.cells <- rownames(tumor.meta[tumor.meta$EMT.class == "EMT.high", ])
+sc.merged <- SetIdent(sc.merged, cells = EMT.low.cells, "Tumor_EMT.low")
+sc.merged <- SetIdent(sc.merged, cells = EMT.high.cells, "Tumor_EMT.high")
+levels(sc.merged)
 
-Tex <- rownames(meta.Tcells[meta.Tcells$final.cats == "CD8 Tex", ])
-Tregs <- rownames(meta.Tcells[meta.Tcells$final.cats == "Treg cells", ])
-CD8 <- rownames(meta.Tcells[meta.Tcells$final.cats == "CD8 T cells", ])
-CD4 <- rownames(meta.Tcells[meta.Tcells$final.cats == "CD4 T cells", ])
-NK <- rownames(meta.Tcells[meta.Tcells$final.cats == "Natural killer cells", ])
+# add Tregs
+immune.meta <- read.csv("results/scRNAseq/seurat/immune.cells/immune.metadata.csv", row.names = 1)
+head(immune.meta)
+table(immune.meta$final.cats)
+Tregs <- rownames(immune.meta[immune.meta$final.cats == "Tregs", ])
+sc.merged <- SetIdent(sc.merged, cells = Tregs, "Tregs")
+levels(sc.merged)
 
-sc.merged <- SetIdent(sc.merged, cells = Tex, value = 'CD8 Tex')
-sc.merged <- SetIdent(sc.merged, cells = Tregs, value = 'Treg cells')
-sc.merged <- SetIdent(sc.merged, cells = CD8, value = 'CD8 T cells')
-sc.merged <- SetIdent(sc.merged, cells = CD4, value = 'CD4 T cells')
-sc.merged <- SetIdent(sc.merged, cells = NK, value = 'NK cells')
+# add Macrophage class
+macro.meta <- read.csv("results/scRNAseq/seurat/macrophages/macro.metadata.csv", row.names = 1)
+head(macro.meta)
+table(macro.meta$M_subtype)
+M2 <- rownames(macro.meta[macro.meta$M_subtype == "M2", ])
+Others <- rownames(macro.meta[macro.meta$M_subtype == "Others", ])
+sc.merged <- SetIdent(sc.merged, cells = M2, "M2_Macrophages")
+sc.merged <- SetIdent(sc.merged, cells = Others, "Other_Macrophages")
+levels(sc.merged)
 
-DimPlot(sc.merged)
-sc.merged <- subset(sc.merged, idents = "CD8 NKT-like cells", invert = T)
-sc.merged$cellchat.cat <- Idents(sc.merged)
-table(sc.merged$cellchat.cat)
+sc.merged$cellchat <- Idents(sc.merged)
+table(sc.merged$cellchat, sc.merged$ID)
+DimPlot(sc.merged, cols = cluster.colors)
 
-library(CellChat)
-cellchat <- createCellChat(object = sc.merged, 
-                           group.by = "cellchat.cat")
-cellchat@DB <- CellChatDB.human
-cellchat <- subsetData(cellchat)
-future::plan("multiprocess", workers = 4)
-cellchat <- identifyOverExpressedGenes(cellchat)
-cellchat <- identifyOverExpressedInteractions(cellchat)
-cellchat <- projectData(cellchat, PPI.human)
-options(future.globals.maxSize = 8000 * 1024^2)
-cellchat <- computeCommunProb(cellchat)
-cellchat <- filterCommunication(cellchat, min.cells = 100)
-cellchat <- computeCommunProbPathway(cellchat)
-cellchat <- aggregateNet(cellchat)
-groupSize <- as.numeric(table(cellchat@idents))
 
-jpeg("netVisual_circle_all.cells.jpeg", height = 900, width = 900, quality = 100)
-netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
-dev.off()
+save(sc.merged, file="data/objects/sc.all.celltypes.RData")
 
-mat <- cellchat@net$weight
-for (i in 1:nrow(mat)) {
-  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
-  mat2[i, ] <- mat[i, ]
-  
-  jpeg(paste0("netVisual_circle", rownames(mat)[i], ".jpeg"), height = 900, width = 900, quality = 100)
-  netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
-  dev.off()
-}
-
-cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
-
-jpeg("netAnalysis_heatmap_all.cells.jpeg", height = 1161, width = 1065, quality = 100)
-netAnalysis_signalingRole_heatmap(cellchat, pattern = "outgoing", font.size = 10, height = 25) +
-  netAnalysis_signalingRole_heatmap(cellchat, pattern = "incoming", font.size = 10, height = 25)
-dev.off()
-
-save(cellchat, file = "cellchat_all.cells.RData")
-save(sc.merged, file="sc.merged.cellchat.RData")
 
 
 # individual 1 ----------------------------------
 
-rm(list=ls())
+#rm(list=ls())
 
-load("sc.merged.cellchat.RData")
+load("data/objects/sc.all.celltypes.RData")
 
-NP3 <- subset(sc.merged, sample == "NP3")
-NP4 <- subset(sc.merged, sample == "NP4")
+Idents(sc.merged) <- sc.merged$cellchat
+DefaultAssay(sc.merged) <- "SCT"
+
+C1D1 <- subset(sc.merged, ID == "C1D1")
+C3D1 <- subset(sc.merged, ID == "C3D1")
 
 
-library(CellChat)
-cellchat.1 <- createCellChat(object = NP3, group.by = "cellchat.cat")
+cellchat.1 <- createCellChat(object = C1D1, group.by = "cellchat")
 cellchat.1@DB <- CellChatDB.human
 cellchat.1 <- subsetData(cellchat.1)
 future::plan("multiprocess", workers = 4)
@@ -155,19 +124,24 @@ netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "outgoing",
   netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "incoming", 
                                     font.size = 9, width = 4, height = 10)
 
-jpeg("NP3_netVisual_circle_all.cells.jpeg", height = 900, width = 900, quality = 100)
+jpeg("C1D1_netVisual_circle_all.cells.jpeg", height = 900, width = 900, quality = 100)
 netVisual_circle(cellchat.1@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
 dev.off()
 cellchat.1 <- netAnalysis_computeCentrality(cellchat.1, slot.name = "netP")
-jpeg("NP3_netAnalysis_heatmap_all.cells.jpeg", height = 1161, width = 1065, quality = 100)
+jpeg("C1D1_netAnalysis_heatmap_all.cells.jpeg", height = 1161, width = 1065, quality = 100)
 netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "outgoing", font.size = 10, height = 25) +
   netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "incoming", font.size = 10, height = 25)
 dev.off()
 
-save(cellchat.1, file = "cellchat.NP3.RData")
+df.net <- subsetCommunication(cellchat.1)
+df.net.2 <- subsetCommunication(cellchat.1, slot.name = "netP") # signaling pathways
+write.csv(df.net, file = paste0(output.dir, "C1D1_interactions.csv"))
+write.csv(df.net.2, file = paste0(output.dir, "C1D1_signaling.pathways.csv"))
+
+save(cellchat.1, file = "data/objects/cellchat.C1D1.RData")
 
 
-cellchat.2 <- createCellChat(object = NP4, group.by = "cellchat.cat")
+cellchat.2 <- createCellChat(object = C3D1, group.by = "cellchat")
 cellchat.2@DB <- CellChatDB.human
 cellchat.2 <- subsetData(cellchat.2)
 future::plan("multiprocess", workers = 4)
@@ -186,42 +160,57 @@ netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "outgoing",
   netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "incoming", 
                                     font.size = 8, width = 4, height = 10)
 
-jpeg("NP4_netVisual_circle_all.cells.jpeg", height = 900, width = 900, quality = 100)
+jpeg("C3D1_netVisual_circle_all.cells.jpeg", height = 900, width = 900, quality = 100)
 netVisual_circle(cellchat.2@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
 dev.off()
 cellchat.2 <- netAnalysis_computeCentrality(cellchat.2, slot.name = "netP")
-jpeg("NP4_netAnalysis_heatmap_all.cells.jpeg", height = 1161, width = 1065, quality = 100)
+jpeg("C3D1_netAnalysis_heatmap_all.cells.jpeg", height = 1161, width = 1065, quality = 100)
 netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "outgoing", font.size = 10, height = 25) +
   netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "incoming", font.size = 10, height = 25)
 dev.off()
 
-save(cellchat.2, file = "cellchat.NP4.RData")
+df.net <- subsetCommunication(cellchat.2)
+df.net.2 <- subsetCommunication(cellchat.2, slot.name = "netP") # signaling pathways
+write.csv(df.net, file = paste0(output.dir, "C3D1_interactions.csv"))
+write.csv(df.net.2, file = paste0(output.dir, "C3D1_signaling.pathways.csv"))
 
+save(cellchat.2, file = "data/objects/cellchat.C3D1.RData")
 
 
 
 
 # individual 2 ----------------------------------
 
-rm(list=ls())
+rm(list = ls())
 
-load("sc.merged.cellchat.RData")
+output.dir <- "results/scRNAseq/cellchat/selected.celltypes/"
 
-table(Idents(sc.merged))
+load("data/objects/sc.all.celltypes.RData")
+
+Idents(sc.merged) <- sc.merged$cellchat
+DefaultAssay(sc.merged) <- "SCT"
 
 # select 
-sc.merged <- subset(sc.merged, idents = c("NK cells", "CD4 T cells", "CD8 T cells",
-                                          "Treg cells", "Tumor cells", "Neutrophils",
-                                          "B cells", "Macrophages", "Endothelial",
-                                          "CAFs"), invert = F)
-sc.merged$cellchat.cat <- Idents(sc.merged)
+levels(sc.merged)
+sc.merged <- subset(sc.merged, 
+                    idents = c("NK cells", "CD4+ T cells", "CD8+ T cells",
+                               "Other_Macrophages", "M2_Macrophages" ,
+                               "Dendritic cells","Monocytes",
+                               "Tregs", "Tumor_EMT.high", "Tumor_EMT.low"), 
+                    invert = F)
+sc.merged <- RenameIdents(sc.merged,
+                          "Other_Macrophages" = "Macrophages",
+                          "M2_Macrophages" = "Macrophages",
+                          "Tumor_EMT.high" = "Tumor cells",
+                          "Tumor_EMT.low" = "Tumor cells")
+sc.merged$cellchat <- Idents(sc.merged)
 
-NP3 <- subset(sc.merged, sample == "NP3")
-NP4 <- subset(sc.merged, sample == "NP4")
+
+C1D1 <- subset(sc.merged, ID == "C1D1")
+C3D1 <- subset(sc.merged, ID == "C3D1")
 
 
-library(CellChat)
-cellchat.1 <- createCellChat(object = NP3, group.by = "cellchat.cat")
+cellchat.1 <- createCellChat(object = C1D1, group.by = "cellchat")
 cellchat.1@DB <- CellChatDB.human
 cellchat.1 <- subsetData(cellchat.1)
 future::plan("multiprocess", workers = 4)
@@ -240,19 +229,24 @@ netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "outgoing",
   netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "incoming", 
                                     font.size = 9, width = 4, height = 10)
 
-jpeg("NP3_netVisual_circle_2.jpeg", height = 900, width = 900, quality = 100)
+jpeg("C1D1_netVisual_circle_all.cells.jpeg", height = 900, width = 900, quality = 100)
 netVisual_circle(cellchat.1@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
 dev.off()
 cellchat.1 <- netAnalysis_computeCentrality(cellchat.1, slot.name = "netP")
-jpeg("NP3_netAnalysis_heatmap_2.jpeg", height = 1161, width = 1065, quality = 100)
+jpeg("C1D1_netAnalysis_heatmap_all.cells.jpeg", height = 1161, width = 1065, quality = 100)
 netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "outgoing", font.size = 10, height = 25) +
   netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "incoming", font.size = 10, height = 25)
 dev.off()
 
-save(cellchat.1, file = "cellchat.NP3_2.RData")
+df.net <- subsetCommunication(cellchat.1)
+df.net.2 <- subsetCommunication(cellchat.1, slot.name = "netP") # signaling pathways
+write.csv(df.net, file = paste0(output.dir, "C1D1_interactions.csv"))
+write.csv(df.net.2, file = paste0(output.dir, "C1D1_signaling.pathways.csv"))
+
+save(cellchat.1, file = "data/objects/cellchat.2.C1D1.RData")
 
 
-cellchat.2 <- createCellChat(object = NP4, group.by = "cellchat.cat")
+cellchat.2 <- createCellChat(object = C3D1, group.by = "cellchat")
 cellchat.2@DB <- CellChatDB.human
 cellchat.2 <- subsetData(cellchat.2)
 future::plan("multiprocess", workers = 4)
@@ -271,43 +265,58 @@ netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "outgoing",
   netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "incoming", 
                                     font.size = 8, width = 4, height = 10)
 
-jpeg("NP4_netVisual_circle_2.jpeg", height = 900, width = 900, quality = 100)
+jpeg("C3D1_netVisual_circle_all.cells.jpeg", height = 900, width = 900, quality = 100)
 netVisual_circle(cellchat.2@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
 dev.off()
 cellchat.2 <- netAnalysis_computeCentrality(cellchat.2, slot.name = "netP")
-jpeg("NP4_netAnalysis_heatmap_2.jpeg", height = 1161, width = 1065, quality = 100)
+jpeg("C3D1_netAnalysis_heatmap_all.cells.jpeg", height = 1161, width = 1065, quality = 100)
 netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "outgoing", font.size = 10, height = 25) +
   netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "incoming", font.size = 10, height = 25)
 dev.off()
 
-save(cellchat.2, file = "cellchat.NP4_2.RData")
+df.net <- subsetCommunication(cellchat.2)
+df.net.2 <- subsetCommunication(cellchat.2, slot.name = "netP") # signaling pathways
+write.csv(df.net, file = paste0(output.dir, "C3D1_interactions.csv"))
+write.csv(df.net.2, file = paste0(output.dir, "C3D1_signaling.pathways.csv"))
 
+save(cellchat.2, file = "data/objects/cellchat.2.C3D1.RData")
 
 
 
 
 # individual 3 ----------------------------------
 
-rm(list=ls())
+rm(list = ls())
 
-load("sc.merged.cellchat.RData")
+output.dir <- "results/scRNAseq/cellchat/selected.celltypes.2/"
 
-table(Idents(sc.merged))
+load("data/objects/sc.all.celltypes.RData")
+
+Idents(sc.merged) <- sc.merged$cellchat
+DefaultAssay(sc.merged) <- "SCT"
 
 # select 
-sc.merged <- subset(sc.merged, idents = c("NK cells", "CD4 T cells", "CD8 T cells",
-                                          "Treg cells", "Tumor cells"), invert = F)
-sc.merged$cellchat.cat <- Idents(sc.merged)
+levels(sc.merged)
+sc.merged <- subset(sc.merged, 
+                    idents = c("NK cells", "CD4+ T cells", "CD8+ T cells",
+#                               "Other_Macrophages", "M2_Macrophages" ,
+#                               "Dendritic cells","Monocytes",
+                               "Tregs", "Tumor_EMT.high", "Tumor_EMT.low"), 
+                    invert = F)
+sc.merged <- RenameIdents(sc.merged,
+                          "Tumor_EMT.high" = "Tumor cells",
+                          "Tumor_EMT.low" = "Tumor cells")
+sc.merged$cellchat <- Idents(sc.merged)
 
-NP3 <- subset(sc.merged, sample == "NP3")
-NP4 <- subset(sc.merged, sample == "NP4")
+
+C1D1 <- subset(sc.merged, ID == "C1D1")
+C3D1 <- subset(sc.merged, ID == "C3D1")
 
 
-library(CellChat)
-cellchat.1 <- createCellChat(object = NP3, group.by = "cellchat.cat")
+cellchat.1 <- createCellChat(object = C1D1, group.by = "cellchat")
 cellchat.1@DB <- CellChatDB.human
 cellchat.1 <- subsetData(cellchat.1)
-future::plan("multiprocess", workers = 8)
+future::plan("multiprocess", workers = 4)
 cellchat.1 <- identifyOverExpressedGenes(cellchat.1)
 cellchat.1 <- identifyOverExpressedInteractions(cellchat.1)
 cellchat.1 <- projectData(cellchat.1, PPI.human)
@@ -323,22 +332,27 @@ netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "outgoing",
   netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "incoming", 
                                     font.size = 9, width = 4, height = 10)
 
-jpeg("NP3_netVisual_circle_3.jpeg", height = 900, width = 900, quality = 100)
+jpeg("C1D1_netVisual_circle_all.cells.jpeg", height = 900, width = 900, quality = 100)
 netVisual_circle(cellchat.1@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
 dev.off()
 cellchat.1 <- netAnalysis_computeCentrality(cellchat.1, slot.name = "netP")
-jpeg("NP3_netAnalysis_heatmap_3.jpeg", height = 1161, width = 1065, quality = 100)
+jpeg("C1D1_netAnalysis_heatmap_all.cells.jpeg", height = 1161, width = 1065, quality = 100)
 netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "outgoing", font.size = 10, height = 25) +
   netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "incoming", font.size = 10, height = 25)
 dev.off()
 
-save(cellchat.1, file = "cellchat.NP3_3.RData")
+df.net <- subsetCommunication(cellchat.1)
+df.net.2 <- subsetCommunication(cellchat.1, slot.name = "netP") # signaling pathways
+write.csv(df.net, file = paste0(output.dir, "C1D1_interactions.csv"))
+write.csv(df.net.2, file = paste0(output.dir, "C1D1_signaling.pathways.csv"))
+
+save(cellchat.1, file = "data/objects/cellchat.3.C1D1.RData")
 
 
-cellchat.2 <- createCellChat(object = NP4, group.by = "cellchat.cat")
+cellchat.2 <- createCellChat(object = C3D1, group.by = "cellchat")
 cellchat.2@DB <- CellChatDB.human
 cellchat.2 <- subsetData(cellchat.2)
-future::plan("multiprocess", workers = 8)
+future::plan("multiprocess", workers = 4)
 cellchat.2 <- identifyOverExpressedGenes(cellchat.2)
 cellchat.2 <- identifyOverExpressedInteractions(cellchat.2)
 cellchat.2 <- projectData(cellchat.2, PPI.human)
@@ -354,117 +368,147 @@ netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "outgoing",
   netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "incoming", 
                                     font.size = 8, width = 4, height = 10)
 
-jpeg("NP4_netVisual_circle_3.jpeg", height = 900, width = 900, quality = 100)
+jpeg("C3D1_netVisual_circle_all.cells.jpeg", height = 900, width = 900, quality = 100)
 netVisual_circle(cellchat.2@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
 dev.off()
 cellchat.2 <- netAnalysis_computeCentrality(cellchat.2, slot.name = "netP")
-jpeg("NP4_netAnalysis_heatmap_3.jpeg", height = 1161, width = 1065, quality = 100)
+jpeg("C3D1_netAnalysis_heatmap_all.cells.jpeg", height = 1161, width = 1065, quality = 100)
 netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "outgoing", font.size = 10, height = 25) +
   netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "incoming", font.size = 10, height = 25)
 dev.off()
 
-save(cellchat.2, file = "cellchat.NP4_3.RData")
+df.net <- subsetCommunication(cellchat.2)
+df.net.2 <- subsetCommunication(cellchat.2, slot.name = "netP") # signaling pathways
+write.csv(df.net, file = paste0(output.dir, "C3D1_interactions.csv"))
+write.csv(df.net.2, file = paste0(output.dir, "C3D1_signaling.pathways.csv"))
+
+save(cellchat.2, file = "data/objects/cellchat.3.C3D1.RData")
 
 
 
+# individual 4 ----------------------------------
 
-# get tables ---------------------------------------------------------
+rm(list = ls())
 
-rm(list=ls())
+output.dir <- "results/scRNAseq/cellchat/selected.celltypes.3/"
 
-# function to load .RData objects on a different name
-loadRData <- function(fileName){
-  load(fileName)
-  get(ls()[ls() != "fileName"])
-}
+load("data/objects/sc.all.celltypes.RData")
 
-base.dir <- "cellchat/individual_3/"
-files <- list.files(path= base.dir, pattern = "RData")
-names <- str_sub(files, 10, -9)
+Idents(sc.merged) <- sc.merged$cellchat
+DefaultAssay(sc.merged) <- "SCT"
 
-for(i in 1:length(files)){
-  cellchat <- loadRData(paste0(base.dir, files[i]))
-  cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
-  df.net <- subsetCommunication(cellchat)
-  df.net.2 <- subsetCommunication(cellchat, slot.name = "netP") # signaling pathways
-  write.csv(df.net, file = paste0(base.dir, "net_", names[i] , ".csv"))
-  write.csv(df.net.2, file = paste0(base.dir, "net2_", names[i] , ".csv"))
-  saveRDS(cellchat, file = paste0(base.dir, "cellchat_", names[i], ".rds"))
-}
-
-
-# compare tables
-
-sc1 <- read.csv("cellchat/individual_3/net2_NP3.csv", row.names = 1)
-table(sc1$source)
-sc1 <- sc1[sc1$source == "Tumor cells", ]
-sc1 <- sc1[sc1$target == "CD8 T cells", ]
-#sc1 <- sc1[sc1$target == "Tumor cells", ]
-#sc1 <- sc1[sc1$source == "CD8 T cells", ]
-head(sc1)
-
-sc2 <- read.csv("cellchat/individual_3/net2_NP4.csv", row.names = 1)
-table(sc2$source)
-sc2 <- sc2[sc2$source == "Tumor cells", ]
-sc2 <- sc2[sc2$target == "CD8 T cells", ]
-#sc2 <- sc2[sc2$target == "Tumor cells", ]
-#sc2 <- sc2[sc2$source == "CD8 T cells", ]
-head(sc2)
-
-intersect(sc1$pathway_name, sc2$pathway_name)
-setdiff(sc1$pathway_name, sc2$pathway_name)
-setdiff(sc2$pathway_name, sc1$pathway_name)
+# select 
+levels(sc.merged)
+sc.merged <- subset(sc.merged, 
+                    idents = c("Other_Macrophages", "M2_Macrophages" ,
+                               "Dendritic cells","Monocytes",
+                               "Tumor_EMT.high", "Tumor_EMT.low"), 
+                    invert = F)
+sc.merged <- RenameIdents(sc.merged,
+                          "Other_Macrophages" = "Macrophages",
+                          "M2_Macrophages" = "Macrophages",
+                          "Tumor_EMT.high" = "Tumor cells",
+                          "Tumor_EMT.low" = "Tumor cells")
+sc.merged$cellchat <- Idents(sc.merged)
 
 
-sp1a <- read.csv("spatial/cellchat.2/net2_P034_Pre.csv", row.names = 1)
-table(sp1a$source)
-sp1a <- sp1a[sp1a$source == "Tumor cells", ]
-sp1a <- sp1a[sp1a$target == "T cells", ]
-head(sp1a)
+C1D1 <- subset(sc.merged, ID == "C1D1")
+C3D1 <- subset(sc.merged, ID == "C3D1")
 
-sp2a <- read.csv("spatial/cellchat.2/net2_P034_Post.csv", row.names = 1)
-sp2a <- sp2a[sp2a$source == "Tumor cells", ]
-sp2a <- sp2a[sp2a$target == "T cells", ]
 
-intersect(sc1$pathway_name, sp1a$pathway_name)
+cellchat.1 <- createCellChat(object = C1D1, group.by = "cellchat")
+cellchat.1@DB <- CellChatDB.human
+cellchat.1 <- subsetData(cellchat.1)
+future::plan("multiprocess", workers = 4)
+cellchat.1 <- identifyOverExpressedGenes(cellchat.1)
+cellchat.1 <- identifyOverExpressedInteractions(cellchat.1)
+cellchat.1 <- projectData(cellchat.1, PPI.human)
+options(future.globals.maxSize = 8000 * 1024^2)
+cellchat.1 <- computeCommunProb(cellchat.1)
+cellchat.1 <- filterCommunication(cellchat.1, min.cells = 100)
+cellchat.1 <- computeCommunProbPathway(cellchat.1)
+cellchat.1 <- aggregateNet(cellchat.1)
+groupSize <- as.numeric(table(cellchat.1@idents))
+cellchat.1 <- netAnalysis_computeCentrality(cellchat.1, slot.name = "netP")
+netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "outgoing", 
+                                  font.size = 9, width = 4, height = 10) +
+  netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "incoming", 
+                                    font.size = 9, width = 4, height = 10)
 
-sp1b <- read.csv("spatial/cellchat.2/net2_P039_Pre.csv", row.names = 1)
-table(sp1b$source)
-sp1b <- sp1b[sp1b$source == "Tumor cells", ]
-sp1b <- sp1b[sp1b$target == "T cells", ]
-head(sp1b)
+jpeg(paste0(output.dir, "C1D1_netVisual_circle_all.cells.jpeg"), height = 900, width = 900, quality = 100)
+netVisual_circle(cellchat.1@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
+dev.off()
+cellchat.1 <- netAnalysis_computeCentrality(cellchat.1, slot.name = "netP")
+jpeg(paste0(output.dir, "C1D1_netAnalysis_heatmap_all.cells.jpeg"), height = 1161, width = 1065, quality = 100)
+netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "outgoing", font.size = 10, height = 25) +
+  netAnalysis_signalingRole_heatmap(cellchat.1, pattern = "incoming", font.size = 10, height = 25)
+dev.off()
 
-sp2b <- read.csv("spatial/cellchat.2/net2_P039_Post.csv", row.names = 1)
-sp2b <- sp2b[sp2b$source == "Tumor cells", ]
-sp2b <- sp2b[sp2b$target == "T cells", ]
+df.net <- subsetCommunication(cellchat.1)
+df.net.2 <- subsetCommunication(cellchat.1, slot.name = "netP") # signaling pathways
+write.csv(df.net, file = paste0(output.dir, "C1D1_interactions.csv"))
+write.csv(df.net.2, file = paste0(output.dir, "C1D1_signaling.pathways.csv"))
 
-intersect(sc2$pathway_name, sp1b$pathway_name)
-intersect(sp1a$pathway_name, sp1b$pathway_name)
-setdiff(sp1a$pathway_name, sp1b$pathway_name)
-setdiff(sp1b$pathway_name, sp1a$pathway_name)
+save(cellchat.1, file = "data/objects/cellchat.4.C1D1.RData")
 
-int1 <- intersect(sp2b$pathway_name, 
-          intersect(sc2$pathway_name, sp2a$pathway_name))
-# "COLLAGEN" "LAMININ"  "MHC-I"    "MIF"      "MK" 
 
-sc1[sc1$pathway_name%in%int1, ]
-sc2[sc2$pathway_name%in%int1, ]
-sp1a[sp1a$pathway_name%in%int1, ]
-sp2a[sp2a$pathway_name%in%int1, ]
-sp1b[sp1b$pathway_name%in%int1, ]
-sp2b[sp2b$pathway_name%in%int1, ]
+cellchat.2 <- createCellChat(object = C3D1, group.by = "cellchat")
+cellchat.2@DB <- CellChatDB.human
+cellchat.2 <- subsetData(cellchat.2)
+future::plan("multiprocess", workers = 4)
+cellchat.2 <- identifyOverExpressedGenes(cellchat.2)
+cellchat.2 <- identifyOverExpressedInteractions(cellchat.2)
+cellchat.2 <- projectData(cellchat.2, PPI.human)
+options(future.globals.maxSize = 8000 * 1024^2)
+cellchat.2 <- computeCommunProb(cellchat.2)
+cellchat.2 <- filterCommunication(cellchat.2, min.cells = 100)
+cellchat.2 <- computeCommunProbPathway(cellchat.2)
+cellchat.2 <- aggregateNet(cellchat.2)
+groupSize <- as.numeric(table(cellchat.2@idents))
+cellchat.2 <- netAnalysis_computeCentrality(cellchat.2, slot.name = "netP")
+netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "outgoing", 
+                                  font.size = 8, width = 4, height = 10) +
+  netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "incoming", 
+                                    font.size = 8, width = 4, height = 10)
 
-# MHC-I seems the most consistent finding
+jpeg(paste0(output.dir,"C3D1_netVisual_circle_all.cells.jpeg"), height = 900, width = 900, quality = 100)
+netVisual_circle(cellchat.2@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
+dev.off()
+cellchat.2 <- netAnalysis_computeCentrality(cellchat.2, slot.name = "netP")
+jpeg(paste0(output.dir,"C3D1_netAnalysis_heatmap_all.cells.jpeg"), height = 1161, width = 1065, quality = 100)
+netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "outgoing", font.size = 10, height = 25) +
+  netAnalysis_signalingRole_heatmap(cellchat.2, pattern = "incoming", font.size = 10, height = 25)
+dev.off()
+
+df.net <- subsetCommunication(cellchat.2)
+df.net.2 <- subsetCommunication(cellchat.2, slot.name = "netP") # signaling pathways
+write.csv(df.net, file = paste0(output.dir, "C3D1_interactions.csv"))
+write.csv(df.net.2, file = paste0(output.dir, "C3D1_signaling.pathways.csv"))
+
+save(cellchat.2, file = "data/objects/cellchat.4.C3D1.RData")
+
+
 
 
 # comparative ----------------------------------
 
 rm(list=ls())
 
-cellchat.1 <- readRDS("cellchat/individual_3/cellchat_NP3.rds")
-cellchat.2 <- readRDS("cellchat/individual_3/cellchat_NP4.rds")
+load("data/objects/cellchat.C1D1.RData")
+load("data/objects/cellchat.C3D1.RData")
 
-object.list <- list('NP3' = cellchat.1, 'NP4' = cellchat.2)
+#load("data/objects/cellchat.2.C1D1.RData")
+#load("data/objects/cellchat.2.C3D1.RData")
+
+load("data/objects/cellchat.3.C1D1.RData")
+load("data/objects/cellchat.3.C3D1.RData")
+
+load("data/objects/cellchat.4.C1D1.RData")
+load("data/objects/cellchat.4.C3D1.RData")
+
+object.list <- list('C1D1' = cellchat.1, 'C3D1' = cellchat.2)
+
+cellchat <- mergeCellChat(object.list, add.names = names(object.list))
 
 # Compare the number of interactions and interaction strength
 
@@ -475,13 +519,16 @@ gg2 <- compareInteractions(cellchat, show.legend = F, group = c(1,2), measure = 
                            size.text = 14,
                            title.name = "Interaction Strength")
 gg1 + gg2
+ggsave("interactions.jpeg")
 
 
+#jpeg("differential.chord.jpeg")
 par(mfrow = c(1,2), xpd=TRUE)
 netVisual_diffInteraction(cellchat, weight.scale = T, measure = "count", comparison = c(1, 2))
 netVisual_diffInteraction(cellchat, weight.scale = T, measure = "weight", comparison = c(1, 2))
 # The width of edges represent the relative number of interactions or interaction strength. 
 # Red (or blue) colored edges represent increased (or decreased) signaling in the second dataset compared to the first one.
+#dev.off()
 
 gg1 <- netVisual_heatmap(cellchat, measure = "count", comparison = c(1, 2))
 gg2 <- netVisual_heatmap(cellchat, measure = "weight", comparison = c(1, 2))
@@ -535,6 +582,8 @@ rankSimilarity(cellchat, type = "functional")
 gg1 <- rankNet(cellchat, mode = "comparison", stacked = T, do.stat = TRUE, comparison = c(1,2), font.size = 8)
 gg2 <- rankNet(cellchat, mode = "comparison", stacked = F, do.stat = TRUE, comparison = c(1,2), font.size = 8)
 gg1 + gg2
+ggsave("rank.plots.jpeg",
+       height = 12, width = 12)
 
 
 # Compare outgoing (or incoming) signaling
@@ -799,6 +848,71 @@ netAnalysis_dot(cellchat, pattern = "outgoing")
 netAnalysis_dot(cellchat, pattern = "incoming")
 
 
+
+
+
+# compare tables ----
+
+sc1 <- read.csv("cellchat/individual_3/net2_NP3.csv", row.names = 1)
+table(sc1$source)
+sc1 <- sc1[sc1$source == "Tumor cells", ]
+sc1 <- sc1[sc1$target == "CD8 T cells", ]
+#sc1 <- sc1[sc1$target == "Tumor cells", ]
+#sc1 <- sc1[sc1$source == "CD8 T cells", ]
+head(sc1)
+
+sc2 <- read.csv("cellchat/individual_3/net2_NP4.csv", row.names = 1)
+table(sc2$source)
+sc2 <- sc2[sc2$source == "Tumor cells", ]
+sc2 <- sc2[sc2$target == "CD8 T cells", ]
+#sc2 <- sc2[sc2$target == "Tumor cells", ]
+#sc2 <- sc2[sc2$source == "CD8 T cells", ]
+head(sc2)
+
+intersect(sc1$pathway_name, sc2$pathway_name)
+setdiff(sc1$pathway_name, sc2$pathway_name)
+setdiff(sc2$pathway_name, sc1$pathway_name)
+
+
+sp1a <- read.csv("spatial/cellchat.2/net2_P034_Pre.csv", row.names = 1)
+table(sp1a$source)
+sp1a <- sp1a[sp1a$source == "Tumor cells", ]
+sp1a <- sp1a[sp1a$target == "T cells", ]
+head(sp1a)
+
+sp2a <- read.csv("spatial/cellchat.2/net2_P034_Post.csv", row.names = 1)
+sp2a <- sp2a[sp2a$source == "Tumor cells", ]
+sp2a <- sp2a[sp2a$target == "T cells", ]
+
+intersect(sc1$pathway_name, sp1a$pathway_name)
+
+sp1b <- read.csv("spatial/cellchat.2/net2_P039_Pre.csv", row.names = 1)
+table(sp1b$source)
+sp1b <- sp1b[sp1b$source == "Tumor cells", ]
+sp1b <- sp1b[sp1b$target == "T cells", ]
+head(sp1b)
+
+sp2b <- read.csv("spatial/cellchat.2/net2_P039_Post.csv", row.names = 1)
+sp2b <- sp2b[sp2b$source == "Tumor cells", ]
+sp2b <- sp2b[sp2b$target == "T cells", ]
+
+intersect(sc2$pathway_name, sp1b$pathway_name)
+intersect(sp1a$pathway_name, sp1b$pathway_name)
+setdiff(sp1a$pathway_name, sp1b$pathway_name)
+setdiff(sp1b$pathway_name, sp1a$pathway_name)
+
+int1 <- intersect(sp2b$pathway_name, 
+                  intersect(sc2$pathway_name, sp2a$pathway_name))
+# "COLLAGEN" "LAMININ"  "MHC-I"    "MIF"      "MK" 
+
+sc1[sc1$pathway_name%in%int1, ]
+sc2[sc2$pathway_name%in%int1, ]
+sp1a[sp1a$pathway_name%in%int1, ]
+sp2a[sp2a$pathway_name%in%int1, ]
+sp1b[sp1b$pathway_name%in%int1, ]
+sp2b[sp2b$pathway_name%in%int1, ]
+
+# MHC-I seems the most consistent finding
 
 
 

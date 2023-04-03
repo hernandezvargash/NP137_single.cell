@@ -2,38 +2,6 @@
 # intro -------------------------------------------------------------------
 
 # immune profiling with scRNAseq data
-# revision to NP137 manuscript
-
-# Referees' comment:
-# There is a significant change in the immune landscape 
-# in tumors treated with NP137 and 
-# the authors also mentioned that EMT status is an important factor 
-# contributing to resistance to immune-checkpoint inhibitors. 
-# It is thus interesting to see whether NP137 can synergize 
-# with current immune checkpoint therapies like anti-PD-1 or 
-# even sensitize non-responding tumors to immune checkpoint blockade. 
-# Before that, a more thorough analysis on their single cell data 
-# is important, because they may discover altered pathways 
-# in different immune cell population, and 
-# this will be useful in guiding their choice of checkpoint inhibitors.
-
-# tasks:
-# identification of immune cell subtypes
-# EMT score
-# pathway analyses unbiased and targeted to immune checkpoints
-# cell:cell communication
-
-# 220323
-# additional tasks to answer reviewer 3
-# ECM score in tumor clusters and cellchat
-# check T cell labelling (e.g. https://www.celltypist.org/)
-# M1 vs M2
-# check endothelial
-# CAF subtypes
-# checkpoint molecule expression
-
-# also spatial analyses with cellchat
-
 
 
 # libraries ---------------------------------------------------------------
@@ -43,235 +11,81 @@ rm(list=ls())
 setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
 
 suppressPackageStartupMessages({
-  library(Seurat);  library(SeuratDisk);#; library(SeuratWrappers); library(SingleCellExperiment)
+  library(Seurat);  library(SeuratDisk)
   library(dplyr); library(xlsx);  library(stringr)
-  library(ggplot2); library(cowplot); library(viridis); library(gridExtra); library(RColorBrewer); library(patchwork); library(hrbrthemes); library(pals)
-  library(SingleR); library(scRNAseq); library(scibet)
-  library(slingshot, quietly = T)
-  library(mclust, quietly = T); library(celldex); library(KernSmooth); library(dendextend); library(circlize)
-  library(enrichR); library(clusterProfiler); library(enrichplot); library(DOSE); library(pathview); library(ReactomePA)
+  library(ggplot2); library(cowplot); library(viridis); library(gridExtra); library(RColorBrewer); library(patchwork); library(hrbrthemes); library(pals); library(scales)
+  library(msigdbr); library(enrichR); library(clusterProfiler); library(enrichplot); library(DOSE); library(pathview); library(ReactomePA)
   library(ggpubr); library(eulerr); library(alluvial)
   library(TxDb.Hsapiens.UCSC.hg38.knownGene); library(org.Hs.eg.db); library(biomaRt)
-  library(Scillus)
-  library(SCENIC)
-  library(snow)
-  library(DoubletFinder)
-  library(Nebulosa)
-  library(celldex)
-  library(ProjecTILs)
+  library(Scillus); library(Nebulosa)
+  library(escape); library(dittoSeq)
+  library(UCell); library(AUCell)
   
 })
 
 set.seed(170323)
 
+output.dir <- "results/scRNAseq/seurat/immune.cells/"
 
 
+# preprocessing ---------------------------------------------
 
-# immune cell identification ---------------------------------------------
+load("data/objects/immune.RData")
 
-rm(list=ls())
+colors <- as.vector(alphabet(n=24))
+cluster.colors = colors[1:16]
+condition.colors = c("brown","orange")
 
-load(file="immune.RData")
+immune <- SCTransform(immune, vars.to.regress = "percent.mt") %>% 
+  RunPCA() %>% FindNeighbors(dims = 1:30) %>% 
+  FindClusters(resolution = 0.1) %>% 
+  RunUMAP(dims = 1:30, umap.method = "umap-learn", metric = "correlation")
 
-immune <- SCTransform(immune, vars.to.regress = "percent.mt") %>% RunPCA() %>% FindNeighbors(dims = 1:30) %>% 
-  FindClusters(resolution = 0.5) %>% RunUMAP(dims = 1:30)
 
-p1 <- DimPlot(immune, label = T, label.box = F, label.size = 5)
-p2 <- DimPlot(immune, group.by = "sample")
-p1+p2
-
-DimPlot(immune, split.by = "sample")#, pt.size = 1)
-head(immune[[]])
+DimPlot(immune, group.by = "cell_type", split.by = "ID")
 
 DimPlot(immune, group.by = "Scibet_1")#, pt.size = 1)
 DimPlot(immune, group.by = "Scibet_2")#, pt.size = 1)
 DimPlot(immune, group.by = "SingleR_main")#, pt.size = 1)
-DimPlot(immune, group.by = "SingleR_fine")#, pt.size = 1)
+DimPlot(immune, group.by = "SingleR_fine", label = T, repel = T) + NoLegend() #, pt.size = 1)
 DimPlot(immune, group.by = "ScType")#, pt.size = 1)
 DimPlot(immune, group.by = "cell_type")#, pt.size = 1)
-
-
-# ScType
-# https://www.nature.com/articles/s41467-022-28803-w
-# https://github.com/IanevskiAleksandr/sc-type/blob/master/README.md
-
-
-# load libraries and functions
-lapply(c("dplyr","Seurat","HGNChelper","ggraph","igraph","tidyverse", "data.tree"), library, character.only = T)
-source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R"); source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
-
-gs_list = gene_sets_prepare("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_short.xlsx", "Immune system") # e.g. Immune system, Liver, Pancreas, Kidney, Eye, Brain
-names(gs_list)
-
-# get cell-type-specific gene sets from our in-built database (DB)
-db_ = "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx";
-tissue = "Immune system" # e.g. Immune system, Liver, Pancreas, Kidney, Eye, Brain
-gs_list = gene_sets_prepare(db_, tissue)
-lapply(gs_list, length)
-head(gs_list[[1]])
-head(gs_list[[2]])
-
-
-# assign cell types
-es.max = sctype_score(scRNAseqData = immune[["SCT"]]@scale.data,
-                      scaled = TRUE, gs = gs_list$gs_positive, gs2 = gs_list$gs_negative)
-es.max[1:10, 1:5]
-
-# NOTE: scRNAseqData parameter should correspond to your input scRNA-seq matrix. 
-# In case Seurat is used, it is either pbmc[["RNA"]]@scale.data (default), pbmc[["SCT"]]@scale.data, in case sctransform is used for normalization,
-# or pbmc[["integrated"]]@scale.data, in case a joint analysis of multiple single-cell datasets is performed.
-
-# merge by cluster
-cL_resutls = do.call("rbind", lapply(unique(immune@meta.data$seurat_clusters), function(cl){
-  es.max.cl = sort(rowSums(es.max[ ,rownames(immune@meta.data[immune@meta.data$seurat_clusters==cl, ])]), decreasing = !0)
-  head(data.frame(cluster = cl, type = names(es.max.cl), scores = es.max.cl, ncells = sum(immune@meta.data$seurat_clusters==cl)), 10)
-}))
-sctype_scores = cL_resutls %>% group_by(cluster) %>% top_n(n = 1, wt = scores)  
-
-# set low-confident (low ScType score) clusters to "unknown"
-sctype_scores$type[as.numeric(as.character(sctype_scores$scores)) < sctype_scores$ncells/4] = "Unknown"
-print(sctype_scores[,1:3])
-
-
-# plot
-
-immune@meta.data$customclassif = ""
-for(j in unique(sctype_scores$cluster)){
-  cl_type = sctype_scores[sctype_scores$cluster==j,]; 
-  immune@meta.data$customclassif[immune@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
-}
-
-DimPlot(immune, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE, group.by = 'customclassif')        
-DimPlot(immune, reduction = "umap", label = F, repel = TRUE, group.by = 'customclassif', split.by = "sample")
-
-
-#plot_density(immune, "CD8A", reduction = "umap")
-
-# remove potentially contaminating cancer cells
-
-immune <- subset(immune, 
-                 idents = c('13','19'),
-                 invert = T)
-
-
-# proportions
-
-tab1 <- table(immune$sample, immune$seurat_clusters)
-write.csv(tab1, file = "immune.seurat.recluster.proportions.csv")
-
-colors <- as.vector(glasbey(n=24))
-cluster.colors = colors[1:12]
-condition.colors = c("brown","orange")
-
-tab1b <- as.data.frame(t(tab1))
-colnames(tab1b) <- c("Cell_type", "Sample","Proportion")
-head(tab1b)
-
-p1 <- ggplot(tab1b, aes(x = Sample, y = Proportion, fill = Cell_type)) +
-  geom_bar(position = "fill", stat = "identity") +
-  #  scale_fill_manual(values = cluster.colors) +
-  ggtitle("Seurat Cluster Proportions") +
-  theme_ipsum() +
-  xlab("")
-
-
-tab2 <- table(immune$sample, immune$customclassif)
-write.csv(tab2, file = "immune.predicted.celltype.proportions.csv")
-
-tab2b <- as.data.frame(t(tab2))
-colnames(tab2b) <- c("Cell_type", "Sample","Proportion")
-head(tab2b)
-
-p2 <- ggplot(tab2b, aes(x = Sample, y = Proportion, fill = Cell_type)) +
-  geom_bar(position = "fill", stat = "identity") +
-  scale_fill_manual(values = cluster.colors) +
-  ggtitle("Predicted Immune Cell Type Proportions") +
-  theme_ipsum() +
-  xlab("")
-
-p1+p2
-
-DimPlot(immune, reduction = "umap", 
-        label = TRUE, label.size = 3, label.box = F, 
-        repel = TRUE, group.by = 'customclassif', 
-        cols = cluster.colors) +
-  ggtitle("Immune Cell Subtypes")
-DimPlot(immune, reduction = "umap", label = F, 
-        repel = TRUE, group.by = 'customclassif',
-        cols = cluster.colors,
-        split.by = "sample") +
-  ggtitle("Immune Cell Subtypes")
-
-
-save(immune, file = "immune.RData")
-
-
-# save for CellTypist:
-
-DefaultAssay(immune) <- "RNA"
-immune.log <- NormalizeData(immune, normalization.method = "LogNormalize", scale.factor = 10000)
-SaveH5Seurat(immune.log, filename = "immune.h5Seurat")
-Convert("immune.h5Seurat", dest = "h5ad")
-
-
-# opening the adata object from celltypist is not working
-# so just updating the metadata
-
-meta.immune <- read.csv("metadata.immune.celltypist.csv", row.names = 1)
-head(meta.immune)
-
-# this is another option
-library(zellkonverter)
-sce1=readH5AD("immune_celltypist.h5ad", verbose = TRUE)
-adata_Seurat <- as.Seurat(sce1, counts = "X", data = NULL)
-head(adata_Seurat[[]])
-DimPlot(adata_Seurat, label = T, repel = T,
-        group.by = "majority_voting") + NoLegend()
-
-# this didn't work
-
-Convert("immune_celltypist.h5ad", dest = "h5seurat", overwrite = TRUE)
-test <- LoadH5Seurat("immune_celltypist.h5seurat")
-head(test[[]])
-
-library("Seurat")
-library("anndata")
-print("Convert from Scanpy to Seurat...")
-data <- read_h5ad("immune_celltypist.h5ad")
-data <- CreateSeuratObject(counts = t(data$X), meta.data = data$obs)
-print(str(data))
 
 
 
 # T cells -------------------------------------------------
 
-rm(list=ls())
+head(immune[[]])
 
-load("immune.RData")
+Idents(immune) <- immune$cell_type
+table(immune$cell_type)
 
-Idents(immune) <- immune$customclassif
-table(immune$customclassif)
-
-Tcells <- subset(immune, idents = c('Memory CD8+ T cells',
-                                    'Naive CD4+ T cells',
-                                    'Natural killer  cells',
-                                    'Naive CD8+ T cells'
-), invert = F)
-table(Tcells$sample, Tcells$customclassif)
+Tcells <- subset(immune, idents = c('CD8+ T cells',
+                                    'CD4+ T cells',
+                                    'NK cells'), invert = F)
+table(Tcells$ID, Tcells$cell_type)
 
 # increased resolution
 Tcells <- SCTransform(Tcells, vars.to.regress = "percent.mt") %>% RunPCA() %>% FindNeighbors(dims = 1:30) %>% 
-  FindClusters(resolution = 0.8) %>% RunUMAP(dims = 1:30)
+  FindClusters(resolution = 0.8) %>% 
+  RunUMAP(dims = 1:30, umap.method = "umap-learn", metric = "correlation")
+
+DimPlot(Tcells)
 
 p1 <- DimPlot(Tcells, label = F, 
-              group.by = "customclassif",
+              group.by = "cell_type",
               label.box = F, label.size = 5)
-p2 <- DimPlot(Tcells, group.by = "sample")
+p2 <- DimPlot(Tcells, group.by = "ID", cols = condition.colors)
 p1+p2
 
 DimPlot(Tcells, 
-        group.by = "customclassif",
-        split.by = "sample")#, pt.size = 1)
+        group.by = "cell_type",
+        split.by = "ID")#, pt.size = 1)
+
+FeaturePlot(Tcells, c("KLRB1","CD8A","CD3D","PTPRC"))
+rownames(Tcells[grep("TRG", rownames(Tcells))])
+FeaturePlot(Tcells, c("TRGC1","TRGC2","TRGV2","TRGV3"))
+FeaturePlot(Tcells, c("FOXP3","IL2RA","CTLA4","CD4"))
 
 
 save(Tcells, file = "Tcells.RData")
@@ -306,31 +120,90 @@ DefaultAssay(Tcells) <- "RNA"
 querydata <- ProjecTILs.classifier(query = Tcells, 
                                    ref = ref, 
                                    filter.cells = F,
-                                   split.by = "sample")
+                                   split.by = "ID")
 head(querydata[[]])
 table(querydata$functional.cluster)
 
 p1 <- DimPlot(querydata, label = T, label.box = F, label.size = 3)
-p2 <- DimPlot(querydata, group.by = "customclassif", label = T) + NoLegend()
-p3 <- DimPlot(querydata, group.by = "functional.cluster", label = T) + NoLegend()
+p2 <- DimPlot(querydata, group.by = "cell_type", label = T) + NoLegend()
+p3 <- DimPlot(querydata, group.by = "functional.cluster", label = T, repel = T) + NoLegend()
 
 p2+p3
 
 DimPlot(querydata, group.by = "functional.cluster", label = F, split.by = "sample")
 
 head(querydata[[]])
-save(querydata, file = "Tcells.RData")
 
 # ProjecTILs wrongly re-labels NK cells,
 # likely because this cell type is not present in the reference
 # However, it identifies Tregs and Tex cells
 
 
+## CellTypist ----
+
+# save for CellTypist:
+
+Tcells
+DefaultAssay(Tcells) <- "RNA"
+Tcells.log <- NormalizeData(Tcells, normalization.method = "LogNormalize", scale.factor = 10000)
+SaveH5Seurat(Tcells.log, filename = "data/objects/Tcells.h5Seurat")
+Convert("data/objects/Tcells.h5Seurat", dest = "h5ad")
+
+
+# or run it in R using RIRA_classification package
+
+Tcells <- RunCellTypist(
+  seuratObj,
+  modelName = "Immune_All_Low.pkl",
+  pThreshold = 0.5,
+  minProp = 0,
+  useMajorityVoting = TRUE,
+  mode = "prob_match",
+  extraArgs = c("--mode", mode, "--p-thres", pThreshold, "--min-prop", minProp),
+  assayName = Seurat::DefaultAssay(seuratObj),
+  columnPrefix = NULL,
+  maxAllowableClasses = 6,
+  minFractionToInclude = 0.01,
+  minCellsToRun = 200,
+  maxBatchSize = 1e+05,
+  retainProbabilityMatrix = FALSE,
+  runCelltypistUpdate = TRUE
+)
+
+head(Tcells[[]])
+
+# opening the adata object from celltypist is not working
+# so just updating the metadata
+
+meta.Tcells <- read.csv("metadata.Tcells.celltypist.csv", row.names = 1)
+head(meta.Tcells)
+
+# this is another option
+library(zellkonverter)
+sce1=readH5AD("Tcells_celltypist.h5ad", verbose = TRUE)
+adata_Seurat <- as.Seurat(sce1, counts = "X", data = NULL)
+head(adata_Seurat[[]])
+DimPlot(adata_Seurat, label = T, repel = T,
+        group.by = "majority_voting") + NoLegend()
+
+# this didn't work
+
+Convert("immune_celltypist.h5ad", dest = "h5seurat", overwrite = TRUE)
+test <- LoadH5Seurat("immune_celltypist.h5seurat")
+head(test[[]])
+
+library("Seurat")
+library("anndata")
+print("Convert from Scanpy to Seurat...")
+data <- read_h5ad("immune_celltypist.h5ad")
+data <- CreateSeuratObject(counts = t(data$X), meta.data = data$obs)
+print(str(data))
+
+
+
 ## new categories ----
 
-rm(list=ls())
-
-load("Tcells.RData")
+#load("Tcells.RData")
 
 Tcells <- querydata
 rm(querydata)
@@ -339,7 +212,7 @@ head(Tcells[[]])
 # automatic classifications
 
 DimPlot(Tcells, label = T)
-DimPlot(Tcells, group.by = "customclassif") # sctype
+DimPlot(Tcells, group.by = "cell_type") # sctype
 DimPlot(Tcells, group.by = "functional.cluster", 
         cols = as.vector(glasbey(n=10)),
         label = T) # ProjectTILs
@@ -449,140 +322,119 @@ plot_density(Tcells, reduction = "umap", c(
 ))
 
 
-Tex <- WhichCells(Tcells, 
-                  expression = functional.cluster == "CD8_Tex" &
-                    SCT_snn_res.0.8 == '7')
-DimPlot(Tcells, cells.highlight = Tex)
-#Tcells <- SetIdent(Tcells, cells = Tex, value = 'CD8 Tex')
+# only Tregs are consistently identified by several methods
+# and confirmed manually as cluster 3
 
-gd <- WhichCells(Tcells, 
-                 expression = SingleR_fine == "T_cell:gamma-delta" &
-                   TRGC1 > 0)
-DimPlot(Tcells, cells.highlight = gd)
+Tregs <- WhichCells(Tcells, idents = '3')
 
-Tcells <- RenameIdents(object = Tcells, 
-                       '0' = 'CD4 T cells', 
-                       '1' = 'CD8 T cells', 
-                       '2' = 'CD4 T cells',
-                       '3' = 'Natural killer cells', 
-                       '4' = 'Treg cells',
-                       '5' = 'Natural killer cells', 
-                       '6' = 'CD4 T cells',
-                       '7' = 'CD8 Tex',
-                       '8' = 'Natural killer cells',
-                       '9' = 'CD8 T cells',
-                       '10' = 'Undefined',
-                       '11' = 'CD4 T cells'
-)
+Idents(Tcells) <- Tcells$cell_type
+Tcells <- SetIdent(Tcells, cells = Tregs, "Tregs")
 
+pdf(paste0(output.dir, "Dimplot.Tcells.1.pdf"), width = 8, height = 6)
+jpeg(paste0(output.dir, "Dimplot.Tcells.1.jpeg"), width = 500, height = 400)
+DimPlot(Tcells)
+dev.off()
 
-head(Tcells[])
-DimPlot(Tcells, cols = cat.colors[3:13])
-DimPlot(Tcells, cols = cat.colors[3:13], split.by = "sample")
+pdf(paste0(output.dir, "Dimplot.Tcells.2.pdf"), width = 12, height = 6)
+jpeg(paste0(output.dir, "Dimplot.Tcells.2.jpeg"), width = 800, height = 400)
+DimPlot(Tcells, split.by = "ID")
+dev.off()
+
 
 Tcells$final.cats <- Idents(Tcells)
 
-save(Tcells, file = "Tcells.RData")
-meta <- Tcells@meta.data
-rownames(meta) <- colnames(Tcells)
-write.csv(meta, file="metadata.Tcells.csv")
+save(Tcells, file="data/objects/Tcells.RData")
+
+write.csv(Tcells@meta.data, file = paste0(output.dir, "Tcells.metadata.csv"))
 
 
 
-## cell type proportions ---------------------------------------------------
 
-load("Tcells.RData")
+# final immune cell subtypes ---------------------------------------------------
 
-tab1 <- table(Tcells$sample, Idents(Tcells))
-prop.table(tab1)
-write.csv(tab1, file = "Tcell.proportions.csv")
+#load("data/objects/immune.RData")
 
-cat.colors <- as.vector(alphabet2())
-#colors <- as.vector(glasbey(n=24))
-cluster.colors = cat.colors[3:13]
-condition.colors = c("brown","orange")
+Idents(immune) <- immune$cell_type
 
-tab1b <- as.data.frame(t(tab1))
-colnames(tab1b) <- c("Cell_Type", "Sample","Proportion")
-head(tab1b)
+immune <- SetIdent(immune, cells = Tregs, "Tregs")
 
-p1 <- ggplot(tab1b, aes(x = Sample, y = Proportion, fill = Cell_Type)) +
+
+pdf(paste0(output.dir, "Dimplot1.pdf"), width = 8, height = 6)
+jpeg(paste0(output.dir, "Dimplot1.jpeg"), width = 500, height = 400)
+DimPlot(immune, cols = cluster.colors)# + NoLegend()
+dev.off()
+
+pdf(paste0(output.dir, "Dimplot2.pdf"), width = 12, height = 6)
+jpeg(paste0(output.dir, "Dimplot2.jpeg"), width = 800, height = 400)
+DimPlot(immune, cols = cluster.colors, split.by = "ID")# + NoLegend()
+dev.off()
+
+p1 <- DimPlot(immune, label = T, label.box = F, label.size = 5, cols = cluster.colors)
+p2 <- DimPlot(immune, group.by = "ID", cols = condition.colors)
+
+pdf(paste0(output.dir, "Dimplot3.pdf"), width = 12, height = 6)
+jpeg(paste0(output.dir, "Dimplot3.jpeg"), width = 1000, height = 400)
+p1+p2
+dev.off()
+
+immune$final.cats <- Idents(immune)
+
+
+
+## proportions ----
+
+prop.table(table(immune$ID, immune$final.cats))
+
+tab1 <- table(immune$ID, immune$final.cats)
+prop.pvalue <- c(1:ncol(tab1))
+for(i in 1:ncol(tab1)){
+  prop.res <- prop.test(tab1[,i], rowSums(tab1))
+  prop.pvalue[i] <- prop.res$p.value
+}
+tab2 <- rbind(tab1, prop.pvalue)
+write.csv(tab2, file = paste0(output.dir, "cluster.proportions.csv"))
+
+tab1 <- as.data.frame(t(tab1))
+colnames(tab1) <- c("Cluster", "Sample","Proportion")
+head(tab1)
+p1 <- ggplot(tab1, aes(x = Sample, y = Proportion, fill = Cluster)) +
   geom_bar(position = "fill", stat = "identity") +
   scale_fill_manual(values = cluster.colors) +
-  ggtitle("Cluster Proportions") +
+  ggtitle("Cell Type Proportions") +
   theme_ipsum() +
-  xlab("")
+  xlab("") + 
+  ylab("Cell Type Proportions") + NoLegend()
+p2 <- ggplot(tab1, aes(x = Sample, y = Proportion, fill = Cluster)) +
+  geom_col() +
+  scale_fill_manual(values = cluster.colors) +
+  ggtitle("Cell Type Numbers") +
+  theme_ipsum() +
+  xlab("") +
+  ylab("Cell Type Numbers")
 
-p2 <- DimPlot(Tcells, cols = cat.colors[3:13], split.by = "sample")
-p3 <- DimPlot(Tcells, cols = cat.colors[3:13])
-
-p1+p3
-
-
-
-# save for CellTypist:
-
-Tcells
-DefaultAssay(Tcells) <- "RNA"
-Tcells.log <- NormalizeData(Tcells, normalization.method = "LogNormalize", scale.factor = 10000)
-SaveH5Seurat(Tcells.log, filename = "Tcells.h5Seurat")
-Convert("Tcells.h5Seurat", dest = "h5ad")
+png(paste0(output.dir, "Barplot.cellclass.png"))
+jpeg(paste0(output.dir, "Barplot.cellclass.jpeg"), 
+     width = 500, height = 350, quality = 100)
+p1 + p2
+dev.off()
 
 
-# or run it in R using RIRA_classification package
 
-Tcells <- RunCellTypist(
-  seuratObj,
-  modelName = "Immune_All_Low.pkl",
-  pThreshold = 0.5,
-  minProp = 0,
-  useMajorityVoting = TRUE,
-  mode = "prob_match",
-  extraArgs = c("--mode", mode, "--p-thres", pThreshold, "--min-prop", minProp),
-  assayName = Seurat::DefaultAssay(seuratObj),
-  columnPrefix = NULL,
-  maxAllowableClasses = 6,
-  minFractionToInclude = 0.01,
-  minCellsToRun = 200,
-  maxBatchSize = 1e+05,
-  retainProbabilityMatrix = FALSE,
-  runCelltypistUpdate = TRUE
-)
+write.csv(immune@meta.data, file = paste0(output.dir, "immune.metadata.csv"))
 
-head(Tcells[[]])
 
-# opening the adata object from celltypist is not working
-# so just updating the metadata
+save(immune, file="data/objects/immune.RData")
 
-meta.Tcells <- read.csv("metadata.Tcells.celltypist.csv", row.names = 1)
-head(meta.Tcells)
-
-# this is another option
-library(zellkonverter)
-sce1=readH5AD("Tcells_celltypist.h5ad", verbose = TRUE)
-adata_Seurat <- as.Seurat(sce1, counts = "X", data = NULL)
-head(adata_Seurat[[]])
-DimPlot(adata_Seurat, label = T, repel = T,
-        group.by = "majority_voting") + NoLegend()
-
-# this didn't work
-
-Convert("immune_celltypist.h5ad", dest = "h5seurat", overwrite = TRUE)
-test <- LoadH5Seurat("immune_celltypist.h5seurat")
-head(test[[]])
-
-library("Seurat")
-library("anndata")
-print("Convert from Scanpy to Seurat...")
-data <- read_h5ad("immune_celltypist.h5ad")
-data <- CreateSeuratObject(counts = t(data$X), meta.data = data$obs)
-print(str(data))
 
 
 
 # checkpoint genes --------------------------------------------------------
 
-load("sc.all.celltypes.RData")
+rm(list=ls())
+
+output.dir <- "results/scRNAseq/seurat/all.cells/"
+
+load(file="data/objects/sc.all.celltypes.RData")
 head(sc.merged[[]])
 DimPlot(sc.merged, label = T)
 
@@ -590,26 +442,43 @@ known.markers <- c("CXCL9","CCR5","CXCL13",
                    "PDCD1","CD274",
                    "CTLA4","CD80","CD86")
 
-jpeg("checkpoint.jpeg", width = 1200, height = 900, quality = 100)
+jpeg(paste0(output.dir,"checkpoint.jpeg"), width = 1200, height = 900, quality = 100)
 FeaturePlot(sc.merged, known.markers, ncol = 3)
 dev.off()
 
-jpeg("checkpoint_density.jpeg", width = 1200, height = 900, quality = 100)
+jpeg(paste0(output.dir,"checkpoint_density.jpeg"), width = 1200, height = 900, quality = 100)
 plot_density(sc.merged, reduction = "umap", known.markers)
 dev.off()
 
 
 i = 2
 VlnPlot(sc.merged, known.markers[i], 
-        group.by = "sample", ncol = 1) +
+        group.by = "ID", ncol = 1) +
   stat_compare_means() + xlab("")
+ggsave(paste0(output.dir, "Violin.CCR5_all.cells.jpeg"))
+ggsave(paste0(output.dir, "Violin.CCR5_all.cells.pdf"))
+
 FeaturePlot(sc.merged, known.markers[i], 
             order = T, pt.size = 0.6,
-            split.by = "sample")
+            split.by = "ID")
+ggsave(paste0(output.dir, "CCR5_all.cells.jpeg"))
+ggsave(paste0(output.dir, "CCR5_all.cells.pdf"))
+
+
 VlnPlot(sc.merged, known.markers[i],
         group.by = "cell_type",
-        split.by = "sample", ncol = 1)
+        split.by = "ID", ncol = 1)
 
+
+cd8 <- subset(sc.merged, ident = "CD8+ T cells")
+table(cd8$ID)
+
+#DefaultAssay(cd8) <- "SCT"
+VlnPlot(cd8, known.markers[i], 
+        group.by = "ID", ncol = 1) +
+  stat_compare_means() + xlab("")
+ggsave(paste0(output.dir, "Violin.CCR5_CD8Tcells.jpeg"))
+ggsave(paste0(output.dir, "Violin.CCR5_CD8Tcells.pdf"))
 
 
 

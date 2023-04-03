@@ -1,14 +1,7 @@
 
-# immune profiling with spatial scRNAseq data
-# revision to NP137 manuscript
-# Visium avant (C1D1) et après traitement (C3D1)
-
-# 220323, spatial tasks:
-# ECM score in tumor clusters
-# T cell identification
-# identify other cell types: endothelial, CAF subtypes
-# checkpoint molecule expression
-# spatial analyses with cellchat
+# spatial scRNAseq data
+# NP137 manuscript
+# Visium for two samples, before and after therapy
 
 # https://nbisweden.github.io/workshop-scRNAseq/labs/compiled/seurat/seurat_07_spatial.html
 # https://satijalab.org/seurat/articles/spatial_vignette.html#working-with-multiple-slices-in-seurat-1

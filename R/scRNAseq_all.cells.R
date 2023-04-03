@@ -1,39 +1,7 @@
 
 # intro -------------------------------------------------------------------
 
-# immune profiling with scRNAseq data
-# revision to NP137 manuscript
-
-# Referees' comment:
-# There is a significant change in the immune landscape 
-# in tumors treated with NP137 and 
-# the authors also mentioned that EMT status is an important factor 
-# contributing to resistance to immune-checkpoint inhibitors. 
-# It is thus interesting to see whether NP137 can synergize 
-# with current immune checkpoint therapies like anti-PD-1 or 
-# even sensitize non-responding tumors to immune checkpoint blockade. 
-# Before that, a more thorough analysis on their single cell data 
-# is important, because they may discover altered pathways 
-# in different immune cell population, and 
-# this will be useful in guiding their choice of checkpoint inhibitors.
-
-# tasks:
-# identification of immune cell subtypes
-# EMT score
-# pathway analyses unbiased and targeted to immune checkpoints
-# cell:cell communication
-
-# 220323
-# additional tasks to answer reviewer 3
-# ECM score in tumor clusters and cellchat
-# check T cell labelling (e.g. https://www.celltypist.org/)
-# M1 vs M2
-# check endothelial
-# CAF subtypes
-# checkpoint molecule expression
-
-# also spatial analyses with cellchat
-
+# scRNAseq data
 
 
 # libraries ---------------------------------------------------------------
@@ -272,8 +240,23 @@ save(sc.merged, file="sc.all.celltypes.RData")
 
 ## proportions ----
 
-tab0 <- table(sc.merged$sample, sc.merged$cell_type)
-write.csv(tab0, file = "celltype.proportions.csv")
+output.dir <- "results/scRNAseq/seurat/all.cells/"
+
+load(file="data/objects/sc.all.celltypes.RData")
+
+levels(sc.merged)
+Idents(sc.merged) <- sc.merged$cell_type
+
+tab0 <- table(sc.merged$ID, sc.merged$cell_type)
+prop.pvalue <- c(1:ncol(tab0))
+for(i in 1:ncol(tab0)){
+  prop.res <- prop.test(tab0[,i], rowSums(tab0))
+  prop.pvalue[i] <- prop.res$p.value
+}
+tab2 <- rbind(tab0, prop.pvalue)
+
+write.csv(tab2, file = paste0(output.dir, "celltype.proportions.csv"))
+
 
 colors <- as.vector(glasbey(n=24))
 cluster.colors = colors[1:12]

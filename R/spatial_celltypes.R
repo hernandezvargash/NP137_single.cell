@@ -1,14 +1,7 @@
 
-# immune profiling with spatial scRNAseq data
-# revision to NP137 manuscript
-# Visium avant (C1D1) et après traitement (C3D1)
-
-# 220323, spatial tasks:
-# ECM score in tumor clusters
-# T cell identification
-# identify other cell types: endothelial, CAF subtypes
-# checkpoint molecule expression
-# spatial analyses with cellchat
+# spatial scRNAseq data
+# NP137 manuscript
+# Visium for two samples, before and after therapy
 
 # https://nbisweden.github.io/workshop-scRNAseq/labs/compiled/seurat/seurat_07_spatial.html
 # https://satijalab.org/seurat/articles/spatial_vignette.html#working-with-multiple-slices-in-seurat-1
@@ -181,6 +174,7 @@ save(new.anno.list, file="st.list.anno.manual.RData")
 
 ## visualizations ----
 
+load("st.list.anno.manual.RData")
 
 lapply(new.anno.list, SpatialDimPlot, label = T, label.box = T, repel = T)
 
@@ -190,6 +184,76 @@ lapply(new.anno.list, SpatialFeaturePlot, c("ACTA2","COL1A1","FN1")) # fibroblas
 lapply(new.anno.list, SpatialFeaturePlot, c("PECAM1","CD34","PROM1")) # endothelial
 lapply(new.anno.list, SpatialFeaturePlot, c("CD163","CD68","CD14")) # macrophages
 
+
+## proportions ----
+
+output.dir <- "results/spatial/seurat/all.cells/"
+
+colors <- as.vector(alphabet(n=24))
+cluster.colors = colors[1:12]
+condition.colors = c("gray","red")
+
+load("data/objects/spatial/st.list.anno.manual.RData")
+
+new.anno.list
+
+sp.merged <- merge(new.anno.list$P034_Pre, c(new.anno.list$P034_Post,
+                                             new.anno.list$P039_Pre,
+                                             new.anno.list$P039_Post))
+
+table(sp.merged$cell_type, sp.merged$sample)
+
+prop.table(table(sp.merged$cell_type, sp.merged$sample))
+
+tab1 <- table(sp.merged$sample, sp.merged$cell_type)
+rownames(tab1) <- c("P34_Pre","P34_Post",
+                    "P39_Pre","P39_Post")
+
+tab34 <- tab1[1:2, ]
+prop.pvalue <- c(1:ncol(tab34))
+for(i in 1:ncol(tab34)){
+  prop.res <- prop.test(tab34[,i], rowSums(tab34))
+  prop.pvalue[i] <- prop.res$p.value
+}
+tab34 <- rbind(tab34, prop.pvalue)
+write.csv(tab34, file = paste0(output.dir, "cluster.proportions.P34.csv"))
+
+tab39 <- tab1[3:4, ]
+prop.pvalue <- c(1:ncol(tab39))
+for(i in 1:ncol(tab39)){
+  prop.res <- prop.test(tab39[,i], rowSums(tab39))
+  prop.pvalue[i] <- prop.res$p.value
+}
+tab39 <- rbind(tab39, prop.pvalue)
+write.csv(tab39, file = paste0(output.dir, "cluster.proportions.P39.csv"))
+
+tab1 <- as.data.frame(t(tab1))
+colnames(tab1) <- c("Cell_Type", "Sample","Proportion")
+head(tab1)
+
+p1 <- ggplot(tab1, aes(x = Sample, y = Proportion, fill = Cell_Type)) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_fill_manual(values = cluster.colors) +
+  ggtitle("Cell Proportions") +
+  theme_ipsum() +
+  xlab("") + 
+  ylab("Cell Proportions") + NoLegend() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5))
+p2 <- ggplot(tab1, aes(x = Sample, y = Proportion, fill = Cell_Type)) +
+  geom_col() +
+  scale_fill_manual(values = cluster.colors) +
+  ggtitle("Cell Numbers") +
+  theme_ipsum() +
+  xlab("") +
+  ylab("Cell Numbers") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5))
+
+
+png(paste0(output.dir, "Barplot.cellclass.png"))
+jpeg(paste0(output.dir, "Barplot.cellclass.jpeg"), 
+     width = 500, height = 350, quality = 100)
+p1 + p2
+dev.off()
 
 
 
@@ -279,6 +343,119 @@ VlnPlot(sc.query, group.by = "seurat_clusters",
         ncol = 2)
 
 
+
+
+# other markers ----
+
+load("st.list.anno.manual.RData")
+
+lapply(new.anno.list, SpatialDimPlot, label = T, label.box = T, repel = T)
+
+lapply(new.anno.list, SpatialFeaturePlot, c("CCR5")) # checkpoint marker
+
+
+# PanCancer EMT signature (https://pubmed.ncbi.nlm.nih.gov/26420858/)
+
+PanEMT <- read.csv("data/genelists/PanCancer_EMT_signature.csv")
+head(PanEMT)
+PanEMT$Symbol # 77
+
+for(i in 1:length(new.anno.list)){
+  sel.sample <- new.anno.list[[i]]
+  sel.PanEMT <- intersect(PanEMT$Symbol, rownames(sel.sample)) # 76
+  sel.sample <- AddModuleScore(sel.sample, list(sel.PanEMT), name = "PanEMT_Score")
+  new.anno.list[[i]] <- sel.sample
+}
+
+
+lapply(new.anno.list, SpatialFeaturePlot, c("PanEMT_Score1"))
+lapply(new.anno.list, VlnPlot, c("PanEMT_Score1"))
+
+
+# use integrated dataset
+
+load("data/objects/spatial/spatial.integrated.RData")
+
+DimPlot(sc.int, group.by = "sample")
+
+DefaultAssay(sc.int) <- "SCT"
+
+sel.PanEMT <- intersect(PanEMT$Symbol, rownames(sc.int)) # 76
+sc.int <- AddModuleScore(sc.int, list(sel.PanEMT), name = "PanEMT_Score")
+
+VlnPlot(sc.int, "PanEMT_Score1", 
+        group.by = "sample",
+        cols = rep(condition.colors, 2)) +
+  ggtitle("PanCancer EMT Score") + xlab("")
+ggsave(paste0(output.dir, "Violins.PanEMT.all.cells.jpeg"))
+ggsave(paste0(output.dir, "Violins.PanEMT.all.cells.pdf"))
+
+sc.int.34 <- subset(sc.int, sample == "01_034_C1d1" |
+                    sample == "01_034_C3d1" )
+v1 <- VlnPlot(sc.int.34, "PanEMT_Score1", 
+        group.by = "sample",
+        cols = condition.colors) +
+  ggtitle("PanCancer EMT Score") +
+  stat_compare_means() + xlab("")
+v1
+ggsave(paste0(output.dir, "Violins.PanEMT.P34.all.cells.jpeg"))
+ggsave(paste0(output.dir, "Violins.PanEMT.P34.all.cells.pdf"))
+
+sc.int.39 <- subset(sc.int, sample == "01_039_C1d1" |
+                      sample == "01_039_C3d1" )
+v2 <- VlnPlot(sc.int.39, "PanEMT_Score1", 
+        group.by = "sample",
+        cols = condition.colors) +
+  ggtitle("PanCancer EMT Score") +
+  stat_compare_means() + xlab("")
+v2
+ggsave(paste0(output.dir, "Violins.PanEMT.P39.all.cells.jpeg"))
+ggsave(paste0(output.dir, "Violins.PanEMT.P39.all.cells.pdf"))
+
+grid.arrange(v1,v2, ncol=2)
+
+
+# only tumor cells
+
+sample1 <- read.csv("data/spatial/histology.labels/01-034 C1D1 Tumor.csv", row.names = 1)
+sample2 <- read.csv("data/spatial/histology.labels/01-034 C3D1 Tumor.csv", row.names = 1)
+
+sel.cells <- c(paste0("P034_Pre_", rownames(sample1)),
+               paste0("P034_Post_", rownames(sample2)))
+
+subset <- subset(sc.int.34, cells = sel.cells)
+v1 <- VlnPlot(subset, "PanEMT_Score1", 
+              group.by = "sample",
+              cols = condition.colors) +
+  ggtitle("PanCancer EMT Score") +
+  stat_compare_means() + xlab("")
+v1
+ggsave(paste0(output.dir, "Violins.PanEMT.P34.tumor.cells.jpeg"))
+ggsave(paste0(output.dir, "Violins.PanEMT.P34.tumor.cells.pdf"))
+
+
+sample1 <- read.csv("data/spatial/histology.labels/01-039 C1D1 Tumor.csv", row.names = 1)
+sample2 <- read.csv("data/spatial/histology.labels/01-039 C3D1 Tumor.csv", row.names = 1)
+
+sel.cells <- c(paste0("P039_Pre_", rownames(sample1)),
+               paste0("P039_Post_", rownames(sample2)))
+
+subset <- subset(sc.int.39, cells = sel.cells)
+v2 <- VlnPlot(subset, "PanEMT_Score1", 
+              group.by = "sample",
+              cols = condition.colors) +
+  ggtitle("PanCancer EMT Score") +
+  stat_compare_means() + xlab("")
+
+v2
+ggsave(paste0(output.dir, "Violins.PanEMT.P39.tumor.cells.jpeg"))
+ggsave(paste0(output.dir, "Violins.PanEMT.P39.tumor.cells.pdf"))
+
+head(sc.int[[]])
+
+write.csv(sc.int@meta.data, file=paste0(output.dir, "integrated.spatial.metadata.csv"))
+
+save(sc.int , file = "data/objects/spatial/sc.int.RData")
 
 
 

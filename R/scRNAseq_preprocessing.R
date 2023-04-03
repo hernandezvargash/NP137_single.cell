@@ -1,39 +1,8 @@
 
 # intro -------------------------------------------------------------------
 
-# immune profiling with scRNAseq data
-# revision to NP137 manuscript
-
-# Referees' comment:
-# There is a significant change in the immune landscape 
-# in tumors treated with NP137 and 
-# the authors also mentioned that EMT status is an important factor 
-# contributing to resistance to immune-checkpoint inhibitors. 
-# It is thus interesting to see whether NP137 can synergize 
-# with current immune checkpoint therapies like anti-PD-1 or 
-# even sensitize non-responding tumors to immune checkpoint blockade. 
-# Before that, a more thorough analysis on their single cell data 
-# is important, because they may discover altered pathways 
-# in different immune cell population, and 
-# this will be useful in guiding their choice of checkpoint inhibitors.
-
-# tasks:
-# identification of immune cell subtypes
-# EMT score
-# pathway analyses unbiased and targeted to immune checkpoints
-# cell:cell communication
-
-# 220323
-# additional tasks to answer reviewer 3
-# ECM score in tumor clusters and cellchat
-# check T cell labelling (e.g. https://www.celltypist.org/)
-# M1 vs M2
-# check endothelial
-# CAF subtypes
-# checkpoint molecule expression
-
-# also spatial analyses with cellchat
-
+# scRNAseq data, NP137 manuscript
+# # preprocessing
 
 
 # libraries ---------------------------------------------------------------
@@ -59,6 +28,7 @@ suppressPackageStartupMessages({
   library(Nebulosa)
   library(celldex)
   library(ProjecTILs)
+  library(scales)
   
 })
 
@@ -68,7 +38,7 @@ set.seed(170323)
 
 # loading from barcode matrices  -----------------------------------------------------------------
 
-dirs <- list.dirs(path = "./Nicolas/matrices", recursive = F, full.names = T)
+dirs <- list.dirs(path = "./data/scRNAseq/matrices", recursive = F, full.names = T)
 
 names <- str_sub(dirs, -3, -1)
 
@@ -123,7 +93,7 @@ do.call(grid.arrange, plist)
 
 # to be checked retrospectively:
 
-save(object.doublet, file = "object.doublet.RData")
+save(object.doublet, file = "data/objects/object.doublet.RData")
 
 
 
@@ -131,7 +101,7 @@ save(object.doublet, file = "object.doublet.RData")
 
 rm(list=ls())
 
-load("object.doublet.RData")
+load("data/objects/object.doublet.RData")
 
 for(i in 1:length(object.doublet)){
   temp1 <- object.doublet[[i]]
@@ -178,9 +148,9 @@ DimPlot(sc.merged, reduction = "umap", split.by = "sample", label = T, label.siz
 table(paste0(sc.merged@meta.data$sample, Idents(sc.merged)))
 tab1 <- table(sc.merged@meta.data$sample, Idents(sc.merged))
 
-write.csv(tab1, "initial_cluster_proportions_by_condition.csv")
+write.csv(tab1, "results/scRNAseq/seurat/all.cells/initial_cluster_proportions_by_condition.csv")
 
-save(sc.merged, file="sc.merged.RData")
+save(sc.merged, file="data/objects/sc.merged.RData")
 
 
 
@@ -188,13 +158,23 @@ save(sc.merged, file="sc.merged.RData")
 
 rm(list=ls())
 
-load("sc.merged.RData")
+load("data/objects/sc.merged.RData")
 
 head(sc.merged[[]])
 
 known.markers <- c("PTPRC","PECAM1","EPCAM","PGR","TFF3","ACTA2","CD19","CD8A","CD4")
+pdf("results/scRNAseq/seurat/all.cells/FeaturePlot.known.markers.pdf", 
+    width = 15, height = 12)
+jpeg("results/scRNAseq/seurat/all.cells/FeaturePlot.known.markers.jpeg", 
+    quality = 100, height = 900, width = 1200)
 FeaturePlot(sc.merged, known.markers, ncol = 3)
+dev.off()
+pdf("results/scRNAseq/seurat/all.cells/DensityPlot.known.markers.pdf", 
+    width = 15, height = 12)
+jpeg("results/scRNAseq/seurat/all.cells/DensityPlot.known.markers.jpeg", 
+     quality = 100, height = 900, width = 1200)
 plot_density(sc.merged, reduction = "umap", known.markers)
+dev.off()
 
 
 ## SciBet ----
@@ -269,7 +249,8 @@ source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gen
 
 # get cell-type-specific gene sets from our in-built database (DB)
 db_ = "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx";
-gs_list = gene_sets_prepare("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_short.xlsx", "Immune system") # e.g. Immune system, Liver, Pancreas, Kidney, Eye, Brain
+gs_list = gene_sets_prepare("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx", "Immune system") # e.g. Immune system, Liver, Pancreas, Kidney, Eye, Brain
+gs_list = gene_sets_prepare("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx", "Lung") # e.g. Immune system, Liver, Pancreas, Kidney, Eye, Brain
 lapply(gs_list, length)
 head(gs_list[[1]])
 head(gs_list[[2]])
@@ -298,71 +279,130 @@ print(sctype_scores[,1:3])
 
 # plot
 
-sc.merged@meta.data$ScType = ""
+sc.merged@meta.data$ScType_Immune = ""
 for(j in unique(sctype_scores$cluster)){
   cl_type = sctype_scores[sctype_scores$cluster==j,]; 
-  sc.merged@meta.data$ScType[sc.merged@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
+  sc.merged@meta.data$ScType_Immune[sc.merged@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
 }
 
-DimPlot(sc.merged, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE, group.by = 'ScType') + NoLegend()        
-DimPlot(sc.merged, reduction = "umap", label = F, repel = TRUE, group.by = 'ScType', split.by = "sample")
+DimPlot(sc.merged, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE, group.by = 'ScType_Immune') + NoLegend()        
+DimPlot(sc.merged, reduction = "umap", label = F, repel = TRUE, group.by = 'ScType_Immune', split.by = "sample")
+
+sc.merged@meta.data$ScType_Lung = ""
+for(j in unique(sctype_scores$cluster)){
+  cl_type = sctype_scores[sctype_scores$cluster==j,]; 
+  sc.merged@meta.data$ScType_Lung[sc.merged@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
+}
+
+DimPlot(sc.merged, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE, group.by = 'ScType_Lung') + NoLegend()        
+DimPlot(sc.merged, reduction = "umap", label = F, repel = TRUE, group.by = 'ScType_Lung', split.by = "sample")
+
+head(sc.merged[[]])
+save(sc.merged, file="data/objects/sc.all.celltypes.RData")
 
 
-## relabel ----
 
-Idents(sc.merged)
+# relabel ----
+
+load(file="data/objects/sc.all.celltypes.RData")
+
+# inspect different classifications
+
+
+d1 <- DimPlot(sc.merged, group.by = "seurat_clusters", label = T, label.size = 6, repel = T, label.box = T) + NoLegend()
+d1b <- DimPlot(sc.merged, group.by = "seurat_clusters", label = F, label.size = 6, repel = F, label.box = F)
+
+d2 <- DimPlot(sc.merged, group.by = "Scibet_1", label = T, label.size = 6, repel = T) + NoLegend()
+d3 <- DimPlot(sc.merged, group.by = "Scibet_2", label = T, label.size = 6, repel = T) + NoLegend()
+d4 <- DimPlot(sc.merged, group.by = "SingleR_main", label = T, repel = T) + NoLegend()
+d5 <- DimPlot(sc.merged, group.by = "SingleR_fine", label = T, repel = T) + NoLegend()
+d6 <- DimPlot(sc.merged, group.by = "ScType_Immune", label = T, repel = T) + NoLegend()
+d7 <- DimPlot(sc.merged, group.by = "ScType_Lung", label = T, repel = T) + NoLegend()
+
+pdf("results/scRNAseq/seurat/all.cells/Dimplot.all.cells.pdf", width = 14, height = 7)
+jpeg("results/scRNAseq/seurat/all.cells/Dimplot.all.cells.jpeg", 
+     width = 1200, height = 600, quality = 100)
+d1 + d1b
+dev.off()
+
+pdf("results/scRNAseq/seurat/all.cells/Dimplots.predicted.cell.types.pdf", width = 18, height = 10)
+jpeg("results/scRNAseq/seurat/all.cells/Dimplots.predicted.cell.types.jpeg", 
+     width = 1300, height = 700, quality = 100)
+grid.arrange(d2,d3,d4,d5,d6,d7, ncol = 3)
+dev.off()
+
+Idents(sc.merged) <- sc.merged$seurat_clusters
+
 DimPlot(sc.merged, label = T, label.box = T)
 DimPlot(sc.merged, label = T, split.by = "sample") + NoLegend()
 
 sc.merged <- RenameIdents(object = sc.merged, 
-                          '0' = 'Immune', 
-                          '1' = 'Epithelial', 
-                          '2' = 'Epithelial', 
-                          '3' = 'Immune', 
-                          '4' = 'Immune', 
-                          '5' = 'Immune', 
-                          '6' = 'Immune', 
-                          '7' = 'Immune', 
-                          '8' = 'Epithelial', 
-                          '9' = 'Immune', 
-                          '10' = 'Endothelial', 
-                          '11' = 'Epithelial', 
-                          '12' = 'Immune', 
+                          '0' = 'Immune cells', 
+                          '1' = 'Tumor cells', 
+                          '2' = 'Tumor cells', 
+                          '3' = 'Immune cells', 
+                          '4' = 'Immune cells', 
+                          '5' = 'Immune cells', 
+                          '6' = 'Immune cells', 
+                          '7' = 'Immune cells', 
+                          '8' = 'Tumor cells', 
+                          '9' = 'Immune cells', 
+                          '10' = 'Endothelial cells', 
+                          '11' = 'Tumor cells', 
+                          '12' = 'Immune cells', 
                           '13' = 'CAFs', 
-                          '14' = 'Immune', 
-                          '15' = 'Immune', 
-                          '16' = 'Immune', 
-                          '17' = 'Immune', 
-                          '18' = 'Epithelial', 
-                          '19' = 'Immune', 
-                          '20' = 'Immune', 
-                          '21' = 'Endothelial', 
-                          '22' = 'Immune', 
-                          '23' = 'Immune'
+                          '14' = 'Immune cells', 
+                          '15' = 'Immune cells', 
+                          '16' = 'Immune cells', 
+                          '17' = 'Immune cells', 
+                          '18' = 'Tumor cells', 
+                          '19' = 'Immune cells', 
+                          '20' = 'Immune cells', 
+                          '21' = 'Tumor cells', 
+                          '22' = 'Immune cells', 
+                          '23' = 'Immune cells'
 )
 
 sc.merged$cell_class <- Idents(sc.merged)
 
-head(sc.merged[[]])
-DimPlot(sc.merged, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE, group.by = 'Scibet_1') + NoLegend()        
-DimPlot(sc.merged, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE, group.by = 'Scibet_2') + NoLegend()        
-DimPlot(sc.merged, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE, group.by = 'SingleR_main') + NoLegend()        
-DimPlot(sc.merged, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE, group.by = 'SingleR_fine') + NoLegend()        
-DimPlot(sc.merged, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE, group.by = 'ScType') + NoLegend()        
+colors <- glasbey()
+show_col(colors)
+colors1 <- colors[c(8,15,7,21)]
+
+pdf("results/scRNAseq/seurat/all.cells/Dimplot1.major.cell.types.pdf", width = 8, height = 6)
+jpeg("results/scRNAseq/seurat/all.cells/Dimplot1.major.cell.types.jpeg", 
+     width = 800, height = 600)
+DimPlot(sc.merged, cols = colors1)# + NoLegend()
+dev.off()
+
+Idents(sc.merged) <- sc.merged$sample
+sc.merged <- RenameIdents(sc.merged, "NP3" = "C1D1",
+                          "NP4" = "C3D1")
+sc.merged$ID <- Idents(sc.merged)
+Idents(sc.merged) <- sc.merged$cell_class
+
+pdf("results/scRNAseq/seurat/all.cells/Dimplot2.major.cell.types.pdf", width = 12, height = 6)
+jpeg("results/scRNAseq/seurat/all.cells/Dimplot2.major.cell.types.jpeg", 
+     width = 1200, height = 600)
+DimPlot(sc.merged, cols = colors1, split.by = "ID")# + NoLegend()
+dev.off()
+
+
+# fine labeling
 
 Idents(sc.merged) <- sc.merged$seurat_clusters
 sc.merged <- RenameIdents(object = sc.merged, 
-                          '0' = 'CD4 T cells', 
+                          '0' = 'CD4+ T cells', 
                           '1' = 'Tumor cells', 
                           '2' = 'Tumor cells', 
-                          '3' = 'CD8 NKT-like cells', # or CD8 T cells
+                          '3' = 'CD8+ T cells', # or CD8 T cells
                           '4' = 'Neutrophils', 
                           '5' = 'B cells', 
                           '6' = 'Macrophages', 
-                          '7' = 'CD8 NKT-like cells', # or NK
+                          '7' = 'NK cells', # or NK
                           '8' = 'Tumor cells', 
                           '9' = 'B cells', 
-                          '10' = 'Endothelial', 
+                          '10' = 'Endothelial cells', 
                           '11' = 'Tumor cells', 
                           '12' = 'B cells', 
                           '13' = 'CAFs', 
@@ -371,7 +411,7 @@ sc.merged <- RenameIdents(object = sc.merged,
                           '16' = 'Dendritic cells', 
                           '17' = 'Monocytes', 
                           '18' = 'Tumor cells', 
-                          '19' = 'CD4 T cells', 
+                          '19' = 'CD4+ T cells', 
                           '20' = 'B cells', 
                           '21' = 'Tumor cells', 
                           '22' = 'Macrophages', 
@@ -380,78 +420,171 @@ sc.merged <- RenameIdents(object = sc.merged,
 
 sc.merged$cell_type <- Idents(sc.merged)
 head(sc.merged[[]])
-DimPlot(sc.merged, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE) + NoLegend()        
+
+alphabet()
+colors2 <- alphabet2()[1:12]
+show_col(colors2)
+names(colors2) <- levels(as.factor(sc.merged$cell_type))
+
+d1 <- DimPlot(sc.merged, reduction = "umap", label = TRUE, label.size = 3, label.box = T, repel = TRUE, cols = colors2) + NoLegend()        
+d2 <- DimPlot(sc.merged, reduction = "umap", label = F, label.size = 3, label.box = T, repel = TRUE, cols = colors2) #+ NoLegend()        
+
+pdf("results/scRNAseq/seurat/all.cells/Dimplot1.minor.cell.types.pdf", width = 12, height = 6)
+jpeg("results/scRNAseq/seurat/all.cells/Dimplot1.minor.cell.types.jpeg", 
+     width = 1200, height = 600)
+d1+d2
+dev.off()
+
+pdf("results/scRNAseq/seurat/all.cells/Dimplot2.minor.cell.types.pdf", width = 12, height = 6)
+jpeg("results/scRNAseq/seurat/all.cells/Dimplot2.minor.cell.types.jpeg", 
+     width = 1200, height = 500)
+DimPlot(sc.merged, group.by = "cell_type", cols = colors2, split.by = "ID")# + NoLegend()
+dev.off()
 
 
 table(Idents(sc.merged), sc.merged$sample)
 
-save(sc.merged, file="sc.all.celltypes.RData")
-#load(file="sc.all.celltypes.RData")
+save(sc.merged, file="data/objects/sc.all.celltypes.RData")
+#load(file="data/objects/sc.all.celltypes.RData")
+
+meta <- sc.merged@meta.data
+head(meta)
+write.csv(meta, file = "data/objects/sc.all.metadata.csv")
 
 
-## proportions ----
+# proportions ----
 
-tab0 <- table(sc.merged$sample, sc.merged$cell_type)
-write.csv(tab0, file = "celltype.proportions.csv")
+rm(list=ls())
 
-colors <- as.vector(glasbey(n=24))
-cluster.colors = colors[1:12]
-condition.colors = c("brown","orange")
+meta <- read.csv(file = "data/objects/sc.all.metadata.csv")
+head(meta)
+meta$cell_class <- as.factor(meta$cell_class)
+meta$cell_type <- as.factor(meta$cell_type)
 
-tab1 <- table(sc.merged$sample, sc.merged$seurat_clusters)
-tab1 <- as.data.frame(t(tab1))
-colnames(tab1) <- c("Cluster", "Sample","Proportion")
+colors <- glasbey()
+colors1 <- colors[c(21,7,8,15)]
+names(colors1) <- levels(as.factor(meta$cell_class))
+colors2 <- alphabet2()[c(5,10,9,1,
+                         3,11,8,6,
+                         12,4,7,2)]
+names(colors2) <- levels(as.factor(meta$cell_type))
+colors3 = c("brown","orange")
+
+tab1 <- table(meta$ID, meta$cell_class)
 head(tab1)
-p1 <- ggplot(tab1, aes(x = Sample, y = Proportion, fill = Cluster)) +
-  geom_bar(position = "fill", stat = "identity") +
-  #  scale_fill_manual(values = cluster.colors) +
-  ggtitle("Seurat Cluster Proportions") +
-  theme_ipsum() +
-  xlab("")
-
-tab2 <- table(sc.merged$sample, sc.merged$cell_type)
-tab2 <- as.data.frame(t(tab2))
-colnames(tab2) <- c("Cell_Type", "Sample","Proportion")
+write.csv(tab1, file = "results/scRNAseq/seurat/cell.class_proportions.csv")
+tab2 <- table(meta$ID, meta$cell_type)
 head(tab2)
-p2 <- ggplot(tab2, aes(x = Sample, y = Proportion, fill = Cell_Type)) +
-  geom_bar(position = "fill", stat = "identity") +
-  scale_fill_manual(values = cluster.colors) +
-  ggtitle("Cell Type Proportions") +
-  theme_ipsum() +
-  xlab("")
+write.csv(tab2, file = "results/scRNAseq/seurat/cell.type_proportions.csv")
 
-tab3 <- table(sc.merged$sample, sc.merged$cell_class)
-tab3 <- as.data.frame(t(tab3))
-colnames(tab3) <- c("Cell_Class", "Sample","Proportion")
-head(tab3)
-p3 <- ggplot(tab3, aes(x = Sample, y = Proportion, fill = Cell_Class)) +
+
+tab1 <- as.data.frame(t(tab1))
+colnames(tab1) <- c("Cell.Class", "Sample","Proportion")
+p1 <- ggplot(tab1, aes(x = Sample, y = Proportion, fill = Cell.Class)) +
   geom_bar(position = "fill", stat = "identity") +
-  scale_fill_manual(values = viridis(4)) +
+  scale_fill_manual(values = colors1) +
   ggtitle("Cell Class Proportions") +
   theme_ipsum() +
-  xlab("")
+  xlab("") + 
+  ylab("Cell Class Proportions") + NoLegend()
+p2 <- ggplot(tab1, aes(x = Sample, y = Proportion, fill = Cell.Class)) +
+  geom_col() +
+  scale_fill_manual(values = colors1) +
+  ggtitle("Cell Class Numbers") +
+  theme_ipsum() +
+  xlab("") +
+  ylab("Cell Class Numbers")
 
-p1+p2+p3
+png("results/scRNAseq/seurat/all.cells/Barplot.cellclass.png")
+jpeg("results/scRNAseq/seurat/all.cells/Barplot.cellclass.jpeg", 
+     width = 500, height = 350, quality = 100)
+p1 + p2
+dev.off()
 
 
-## create subsets ----
+tab2 <- as.data.frame(t(tab2))
+colnames(tab2) <- c("Cell.Type", "Sample","Proportion")
+p1 <- ggplot(tab2, aes(x = Sample, y = Proportion, fill = Cell.Type)) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_fill_manual(values = colors2) +
+  ggtitle("Cell Type Proportions") +
+  theme_ipsum() +
+  xlab("") + 
+  ylab("Cell Type Proportions") + NoLegend()
+p2 <- ggplot(tab2, aes(x = Sample, y = Proportion, fill = Cell.Type)) +
+  geom_col() +
+  scale_fill_manual(values = colors2) +
+  ggtitle("Cell Type Numbers") +
+  theme_ipsum() +
+  xlab("") +
+  ylab("Cell Type Numbers")
+
+png("results/scRNAseq/seurat/all.cells/Barplot.celltype.png")
+jpeg("results/scRNAseq/seurat/all.cells/Barplot.celltype.jpeg", 
+     width = 500, height = 350, quality = 100)
+p1 + p2
+dev.off()
+
+
+# create subsets ----
 
 Idents(sc.merged) <- sc.merged$cell_class
-immune <- subset(sc.merged, idents = "Immune")
-epithelial <- subset(sc.merged, idents = "Epithelial")
-endothelial <- subset(sc.merged, idents = "Endothelial")
-CAFs <- subset(sc.merged, idents = "CAFs")
+immune <- subset(sc.merged, idents = "Immune cells") # 9885
+tumor <- subset(sc.merged, idents = "Tumor cells") # 5622
+endothelial <- subset(sc.merged, idents = "Endothelial cells") # 562
+CAFs <- subset(sc.merged, idents = "CAFs") # 306
 
-save(immune, file="immune.RData")
-save(epithelial, file="epithelial.RData")
-save(endothelial, file="endothelial.RData")
-save(CAFs, file="CAFs.RData")
+save(immune, file="data/objects/immune.RData")
+save(tumor, file="data/objects/tumor.RData")
+save(endothelial, file="data/objects/endothelial.RData")
+save(CAFs, file="data/objects/CAFs.RData")
+
+
+
+# cell cycle adjustment ---------------------------------------------------
+
+rm(list=ls())
+
+load(file="data/objects/sc.all.celltypes.RData")
+
+DefaultAssay(sc.merged) <- "SCT"
+
+RunPCA(sc.merged, features = VariableFeatures(sc.merged), ndims.print = 1:10, nfeatures.print = 10)
+# no cell cycle genes in the first 10 PCs
+
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+sc.merged <- CellCycleScoring(sc.merged, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+head(sc.merged[[]])
+RidgePlot(sc.merged, features = c("MKI67", "TOP2A", "BIRC5", "MCM6"), ncol = 4)
+
+# regress out cell cycle scores
+sc.merged <- ScaleData(sc.merged, vars.to.regress = c("S.Score", "G2M.Score"), features = rownames(sc.merged))
+
+sc.merged <- RunPCA(sc.merged, 
+                    features = VariableFeatures(sc.merged), 
+                    ndims.print = 1:10, nfeatures.print = 10) %>% 
+  RunUMAP(reduction = "pca", dims = 1:30) %>% 
+  FindNeighbors(dims = 1:30) %>% 
+  FindClusters(resolution = 0.5)
+
+pdf("results/scRNAseq/seurat/all.cells/Dimplot.minor.cell.types.cellcycle.pdf", width = 7, height = 6)
+jpeg("results/scRNAseq/seurat/all.cells/Dimplot.minor.cell.types.cellcycle.jpeg", 
+     width = 800, height = 600)
+DimPlot(sc.merged, label = T, group.by = "cell_type")
+dev.off()
+
+
+# no significant change in clusters after regressing cell cycle scores
+
+save(sc.merged, file = "data/objects/sc.all.cellcycle.regressed.RData")
 
 
 
 
 # end ---------------------------------------------------------------------
-
+sessionInfo()
 
 
 
