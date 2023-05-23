@@ -253,6 +253,14 @@ CAF.genelist <- list(myCAFs= toupper(known.cafs$myCAFs),
 
 ##
 
+DimPlot(CAFs, split.by = "ID")
+table(CAFs$CAF.class, CAFs$ID)
+FeaturePlot(CAFs, "ACTA2")
+FeaturePlot(CAFs, "COL12A1")
+FeaturePlot(CAFs, "CD74")
+FeaturePlot(CAFs, "FBLN1", split.by = "ID")
+VlnPlot(CAFs, "FBLN1", split.by = "ID")
+
 mCAFs= c("MMP2", "DCN", "COL12A1", "FBLN1")
 vCAFs= c("MCAM", "COL4A1", "COL18A1")
 iCAFs1= c("MUSTN1", "TAGLN", "S100A4", "CXCL2")
@@ -361,6 +369,241 @@ jpeg(paste0(output.dir, "Barplot.cellclass.jpeg"),
      width = 500, height = 350, quality = 100)
 p1 + p2
 dev.off()
+
+
+## cycling CAFs? ----
+
+FeaturePlot(CAFs, "CDK1")
+FeaturePlot(CAFs, "AURKA", split.by = "ID")
+FeaturePlot(CAFs, "BIRC5", split.by = "ID")
+
+caf.pre <- subset(CAFs, subset = ID == "C1D1")
+caf.post <- subset(CAFs, subset = ID == "C3D1")
+
+plot_density(CAFs, "CDK1", reduction = "umap")
+plot_density(CAFs, "BUB1", reduction = "umap")
+
+p1 <- plot_density(caf.pre, "BIRC5", reduction = "umap") +
+  ggtitle("BIRC5 in C1D1")
+p2 <- plot_density(caf.post, "BIRC5", reduction = "umap")+
+  ggtitle("BIRC5 in C3D1")
+p3 <- plot_density(caf.pre, "CDK1", reduction = "umap")+
+  ggtitle("CDK1 in C1D1")
+p4 <- plot_density(caf.post, "CDK1", reduction = "umap")+
+  ggtitle("CDK1 in C3D1")
+
+p1+p2+p3+p4
+
+
+
+
+## ssGSEA ----
+
+gene.sets <- getGeneSets(species = "Homo sapiens", library = "H", subcategory = NULL)
+names(gene.sets)
+
+ES <- enrichIt(obj = CAFs, 
+               method = "ssGSEA", # "Ucell",
+               gene.sets = gene.sets, 
+               groups = 1000, cores = 4, 
+               min.size = 20)
+head(ES)
+CAFs <- AddMetaData(CAFs, ES)
+head(CAFs[[]])
+
+ES2 <- data.frame(CAFs[[]], Idents(CAFs))
+head(ES2)
+colnames(ES2)[ncol(ES2)] <- "cluster"
+
+output <- getSignificance(ES2, 
+                          group = "ID", 
+                          gene.sets = names(gene.sets),
+                          fit = "T.test")
+head(output)
+output <- output[order(output$FDR, decreasing = F), ]
+
+write.csv(output, file = paste0(output.dir, "CAFs.Hallmark.pathways.C3D1.vs.C1D1.csv"))
+
+
+ridgeEnrichment(ES2, 
+                gene.set = "HALLMARK_INTERFERON_GAMMA_RESPONSE", 
+                group = "cluster", add.rug = TRUE)
+
+splitEnrichment(ES2, split = "ID", gene.set = "HALLMARK_INTERFERON_GAMMA_RESPONSE")
+ggsave(paste0(output.dir, "SplitEnrichment.IFNg.jpeg"))
+ggsave(paste0(output.dir, "SplitEnrichment.IFNg.pdf"))
+
+splitEnrichment(ES2, split = "ID", gene.set = "HALLMARK_PROTEIN_SECRETION")
+ggsave(paste0(output.dir, "SplitEnrichment.secretion.jpeg"))
+ggsave(paste0(output.dir, "SplitEnrichment.secretion.pdf"))
+
+splitEnrichment(ES2, split = "ID", gene.set = "HALLMARK_KRAS_SIGNALING_DN")
+ggsave(paste0(output.dir, "SplitEnrichment.KRAS.jpeg"))
+ggsave(paste0(output.dir, "SplitEnrichment.KRAS.pdf"))
+
+splitEnrichment(ES2, split = "ID", gene.set = "HALLMARK_HEDGEHOG_SIGNALING")
+ggsave(paste0(output.dir, "SplitEnrichment.HEDGEHOG.jpeg"))
+ggsave(paste0(output.dir, "SplitEnrichment.HEDGEHOG.pdf"))
+
+splitEnrichment(ES2, split = "ID", gene.set = "HALLMARK_MITOTIC_SPINDLE")
+ggsave(paste0(output.dir, "SplitEnrichment.MITOTIC_SPINDLE.jpeg"))
+ggsave(paste0(output.dir, "SplitEnrichment.MITOTIC_SPINDLE.pdf"))
+
+splitEnrichment(ES2, split = "ID", gene.set = "HALLMARK_G2M_CHECKPOINT")
+ggsave(paste0(output.dir, "SplitEnrichment.MITOTIC_G2M.jpeg"))
+ggsave(paste0(output.dir, "SplitEnrichment.MITOTIC_G2M.pdf"))
+
+
+
+
+#PCA <- performPCA(enriched = ES2, gene.sets = names(gene.sets), groups = c("ID", "cluster"))
+#pcaEnrichment(PCA, PCx = "PC1", PCy = "PC2", contours = TRUE)
+
+masterPCAPlot(ES2, gene.sets = names(gene.sets), 
+              PCx = "PC1", PCy = "PC2", 
+              top.contribution = 10)
+
+sel.pathways <- output[order(output$FDR, decreasing = F), ]
+head(sel.pathways, 20)
+sel.pathways <- rownames(sel.pathways)[1:20]
+
+dittoHeatmap(CAFs, genes = NULL, 
+             metas = sel.pathways, 
+             annot.by = "ID", 
+             fontsize = 7, 
+             cluster_cols = F,
+             heatmap.colors = colorRampPalette(c("blue", "white", "red"))(50))
+
+masterPCAPlot(ES, gene.sets = colnames(ES)[1:ncol(ES)-1],
+              PCx = "PC1", PCy = "PC2", top.contribution = 5) +
+  theme(text=element_text(size=14),
+        plot.title = element_text(size = 16)) +
+  ggtitle("PC plot of Hallmark gene sets")
+
+ggsave(paste0(output.dir, "PCplot.Hallmark.jpeg"))
+ggsave(paste0(output.dir, "PCplot.Hallmark.pdf"))
+
+
+write.csv(CAFs@meta.data, file = paste0(output.dir, "CAFs.metadata.csv"))
+
+save(endothelial, file="data/objects/CAFs.RData")
+
+
+
+
+# endothelial ----
+
+# checking for enrichment in C3D1 vs C1D1
+
+output.dir <- "results/scRNAseq/seurat/endothelial.cells/"
+
+load("data/objects/endothelial.RData")
+
+colors <- as.vector(alphabet(n=24))
+cluster.colors = colors[1:12]
+condition.colors = c("gray","red")
+
+Idents(endothelial) <- endothelial$cell_type
+DefaultAssay(endothelial) <- "SCT"
+DimPlot(endothelial)
+
+endothelial <- SCTransform(endothelial, vars.to.regress = "percent.mt") %>% 
+  RunPCA() %>% FindNeighbors(dims = 1:30) %>% 
+  FindClusters(resolution = 0.2) %>% 
+  RunUMAP(dims = 1:30, umap.method = "umap-learn", metric = "correlation")
+
+DimPlot(endothelial, split.by = "ID")
+ggsave(paste0(output.dir, "DimPlot.jpeg"))
+ggsave(paste0(output.dir, "DimPlot.pdf"))
+
+table(endothelial$ID)
+# C1D1 C3D1 
+# 382  180
+
+write.csv(endothelial@meta.data, file = paste0(output.dir, "endothelial.metadata.csv"))
+
+save(endothelial, file="data/objects/endothelial.RData")
+
+
+## ssGSEA ----
+
+gene.sets <- getGeneSets(species = "Homo sapiens", library = "H", subcategory = NULL)
+names(gene.sets)
+
+ES <- enrichIt(obj = endothelial, 
+               method = "ssGSEA", # "Ucell",
+               gene.sets = gene.sets, 
+               groups = 1000, cores = 4, 
+               min.size = 20)
+head(ES)
+endothelial <- AddMetaData(endothelial, ES)
+head(endothelial[[]])
+
+ES2 <- data.frame(endothelial[[]], Idents(endothelial))
+head(ES2)
+colnames(ES2)[ncol(ES2)] <- "cluster"
+
+output <- getSignificance(ES2, 
+                          group = "ID", 
+                          gene.sets = names(gene.sets),
+                          fit = "T.test")
+head(output)
+output <- output[order(output$FDR, decreasing = F), ]
+
+write.csv(output, file = paste0(output.dir, "Endothelial.Hallmark.pathways.C3D1.vs.C1D1.csv"))
+
+
+ridgeEnrichment(ES2, 
+                gene.set = "HALLMARK_INTERFERON_GAMMA_RESPONSE", 
+                group = "cluster", add.rug = TRUE)
+
+splitEnrichment(ES2, split = "ID", gene.set = "HALLMARK_INTERFERON_GAMMA_RESPONSE")
+ggsave(paste0(output.dir, "SplitEnrichment.IFNg.jpeg"))
+ggsave(paste0(output.dir, "SplitEnrichment.IFNg.pdf"))
+
+splitEnrichment(ES2, split = "ID", gene.set = "HALLMARK_INTERFERON_ALPHA_RESPONSE")
+ggsave(paste0(output.dir, "SplitEnrichment.IFNa.jpeg"))
+ggsave(paste0(output.dir, "SplitEnrichment.IFNa.pdf"))
+
+splitEnrichment(ES2, split = "ID", gene.set = "HALLMARK_ANGIOGENESIS")
+ggsave(paste0(output.dir, "SplitEnrichment.Angiogenesis.jpeg"))
+ggsave(paste0(output.dir, "SplitEnrichment.Angiogenesis.pdf"))
+
+
+
+#PCA <- performPCA(enriched = ES2, gene.sets = names(gene.sets), groups = c("ID", "cluster"))
+#pcaEnrichment(PCA, PCx = "PC1", PCy = "PC2", contours = TRUE)
+
+masterPCAPlot(ES2, gene.sets = names(gene.sets), 
+              PCx = "PC1", PCy = "PC2", 
+              top.contribution = 10)
+
+sel.pathways <- output[order(output$FDR, decreasing = F), ]
+head(sel.pathways, 20)
+sel.pathways <- rownames(sel.pathways)[1:20]
+
+dittoHeatmap(endothelial, genes = NULL, 
+             metas = sel.pathways, 
+             annot.by = "ID", 
+             fontsize = 7, 
+             cluster_cols = F,
+             heatmap.colors = colorRampPalette(c("blue", "white", "red"))(50))
+
+masterPCAPlot(ES, gene.sets = colnames(ES)[1:ncol(ES)-1],
+              PCx = "PC1", PCy = "PC2", top.contribution = 5) +
+  theme(text=element_text(size=14),
+        plot.title = element_text(size = 16)) +
+  ggtitle("PC plot of Hallmark gene sets")
+
+ggsave(paste0(output.dir, "PCplot.Hallmark.jpeg"))
+ggsave(paste0(output.dir, "PCplot.Hallmark.pdf"))
+
+
+write.csv(endothelial@meta.data, file = paste0(output.dir, "endothelial.metadata.csv"))
+
+save(endothelial, file="data/objects/endothelial.RData")
+
+
 
 
 

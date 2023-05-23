@@ -114,6 +114,7 @@ ES <- enrichIt(obj = tumor,
                gene.sets = gene.sets, 
                groups = 1000, cores = 4, 
                min.size = 20)
+save(ES, file = "data/objects/ES_tumor.cells.RData")
 head(ES)
 tumor <- AddMetaData(tumor, ES)
 head(tumor[[]])
@@ -171,7 +172,7 @@ ggsave(paste0(output.dir, "PCplot.Hallmark.pdf"))
 
 # EMT scores ----
 
-## MsigDb Halmark ----
+## MsigDb Hallmark ----
 
 # from: http://www.gsea-msigdb.org/gsea/msigdb/index.jsp
 
@@ -199,7 +200,7 @@ emt.genes <- list(EMT = emt.genes)
 tumor <- AddModuleScore_UCell(tumor, features = emt.genes)
 signature.names <- paste0(names(emt.genes), "_UCell")
 
-v2 <- VlnPlot(tumor, features = signature.names, 
+v2 <- VlnPlot(tumor, features = "EMT_UCell", 
               group.by = "ID", cols = condition.colors) +
   ggtitle("EMT Score [UCell]") + xlab("") +
   stat_compare_means() +
@@ -249,6 +250,37 @@ ggsave(paste0(output.dir, "DensityPlots.EMT.Hallmark.pdf"),
        width = 12, height = 4)
 ggsave(paste0(output.dir, "DensityPlots.EMT.Hallmark.jpeg"),
        width = 12, height = 4)
+
+
+
+## by cluster
+
+Idents(tumor) <- tumor$seurat_clusters
+DimPlot(tumor, cols = cluster.colors)# + NoLegend()
+VlnPlot(tumor, "EMT_UCell", split.by = "ID", cols = condition.colors)
+VlnPlot(tumor, "EMT_UCell", cols = cluster.colors)
+
+ridgeEnrichment(ES2, 
+                gene.set = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", 
+                group = "cluster", add.rug = TRUE)
+
+library(SCpubr)
+
+SCpubr::do_RidgePlot(sample = tumor, colors.use = cluster.colors, flip = F,
+                     font.size = 12, split.by = "ID",
+                     plot.title = "Hallmark EMT Score [UCell]",
+                          feature = "EMT_UCell")
+
+ES2 <- data.frame(tumor[[]], Idents(tumor))
+head(ES2)
+colnames(ES2)[ncol(ES2)] <- "cluster"
+
+show_col(cluster.colors)
+ridgeEnrichment(ES2, colors = cluster.colors[1:9],
+                gene.set = "EMT_UCell", 
+                group = "cluster", add.rug = TRUE)
+
+splitEnrichment(ES2, split = "ID", gene.set = "EMT_UCell", colors = condition.colors)
 
 
 

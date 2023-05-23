@@ -248,6 +248,213 @@ top.features <- head(SpatiallyVariableFeatures(sc.int, selection.method = 'markv
 
 
 
+# integrate patient P034 -------------------------------------------------------------
+
+rm(list=ls())
+
+list.files()
+
+samples <- list.dirs(path = "data/spatial/", full.names = F, recursive = F)
+
+data.dir <- list.dirs(path = "data/spatial", full.names = T, recursive = F)
+
+list.samples <- list()
+for(i in 1:2){
+  list.samples[[i]] <- Load10X_Spatial(data.dir = paste0(data.dir[i], "/outs/"))
+  list.samples[[i]]$sample <- samples[[i]]
+}
+
+names(list.samples) <- c("P034_Pre","P034_Post")
+lapply(list.samples, dim)
+
+list.samples <- lapply(list.samples, SCTransform, assay = "Spatial", method = "poisson")
+st.features  <- SelectIntegrationFeatures(list.samples, nfeatures = 3000)
+# need to set maxSize for PrepSCTIntegration to work
+options(future.globals.maxSize = 2000 * 1024^2)  # set allowed size to 2K MiB
+st.features = SelectIntegrationFeatures(list.samples, nfeatures = 3000, verbose = FALSE)
+list.samples <- PrepSCTIntegration(object.list = list.samples, 
+                              anchor.features = st.features,
+                              verbose = FALSE)
+int.anchors <- FindIntegrationAnchors(object.list = list.samples, normalization.method = "SCT",
+                                      verbose = FALSE, anchor.features = st.features)
+sc.int <- IntegrateData(anchorset = int.anchors, normalization.method = "SCT",
+                        verbose = FALSE)
+
+sc.int <- RunPCA(sc.int, verbose = FALSE) %>% 
+  FindNeighbors(dims = 1:30) %>% 
+  FindClusters(verbose = FALSE) %>%
+  RunUMAP(dims = 1:30)
+
+head(sc.int[[]])
+
+Idents(sc.int) <- sc.int$sample
+
+DimPlot(sc.int, reduction = "umap")#, group.by = c("ident", "sample"))
+
+SpatialDimPlot(sc.int)
+SpatialFeaturePlot(sc.int, "EPCAM")
+
+saveRDS(sc.int , file = "data/objects/spatial/integrated_P034.rds")
+
+
+
+# subset in tumor cells
+
+sample1 <- read.csv("data/spatial/histology.labels/01-034 C1D1 Tumor.csv", row.names = 1)
+sample2 <- read.csv("data/spatial/histology.labels/01-034 C3D1 Tumor.csv", row.names = 1)
+
+sel.cells <- c(paste0(rownames(sample1),"_1"),
+               paste0(rownames(sample2),"_2"))
+
+table(sc.int$integrated_snn_res.0.8)
+Idents(sc.int) <- sc.int$seurat_clusters
+sc.int <- SetIdent(sc.int, sel.cells, "Tumor cells")
+sc.int$histo <- Idents(sc.int)
+table(sc.int$histo, sc.int$sample)
+#saveRDS(sc.int , file = "data/objects/spatial/integrated_P034.rds")
+
+subset <- subset(sc.int, ident = "Tumor cells")
+saveRDS(subset , file = "data/objects/spatial/integrated_P034_tumor.cells.rds")
+
+### MsigDb Halmark ----
+
+# from: http://www.gsea-msigdb.org/gsea/msigdb/index.jsp
+
+library(msigdbr)
+gsets_msigdb <- msigdbr(species = "Homo sapiens", category = "H")
+gsets_msigdb <- gsets_msigdb[gsets_msigdb$gs_name==
+                               "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", ]
+emt.genes <- gsets_msigdb$gene_symbol # 204
+emt.genes <- intersect(emt.genes, rownames(subset)) # 144
+
+# score with AddModuleScore
+DefaultAssay(subset) <- "SCT"
+subset <- AddModuleScore(subset, 
+                         name = "EMT_score",
+                         list(emt.genes))
+
+condition.colors = rep(c("gray","red"), 2)
+
+library(ggpubr)
+v1 <- VlnPlot(subset, features = "EMT_score1", 
+              group.by = "sample", cols = condition.colors) +
+  ggtitle("EMT Score [Seurat]") + xlab("") +
+  stat_compare_means() +
+  theme(axis.text.x = element_text(angle = 0, size = 16))+
+  RotatedAxis()
+
+
+# compare to UCell:
+library(UCell)
+emt.genes <- list(EMT = emt.genes)
+subset <- AddModuleScore_UCell(subset, features = emt.genes)
+signature.names <- paste0(names(emt.genes), "_UCell")
+
+v2 <- VlnPlot(subset, features = "EMT_UCell", 
+              group.by = "sample", cols = condition.colors) +
+  ggtitle("EMT Score [UCell]") + xlab("") +
+  stat_compare_means() +
+  theme(axis.text.x = element_text(angle = 0, size = 16))+
+  RotatedAxis()
+
+v1 + v2
+library(gridExtra)
+grid.arrange(v1,v2, ncol = 2)
+ggsave(paste0(output.dir, "Violins.EMT.Hallmark.pdf"))
+ggsave(paste0(output.dir, "Violins.EMT.Hallmark.jpeg"))
+
+
+saveRDS(subset , file = "data/objects/spatial/integrated_P034_tumor.cells.rds")
+subset <- readRDS("data/objects/spatial/integrated_P034_tumor.cells.rds")
+
+
+SpatialFeaturePlot(subset, "EMT_UCell")
+
+
+DefaultAssay(subset) <- "Spatial"
+
+p <- SpatialFeaturePlot(subset, "EMT_UCell", crop = F)
+
+p + ggplot2::scale_fill_continuous(limits = c(0.0,10.0),, breaks = c(0.0, 5.0, 1.0))
+
+
+
+DefaultAssay(subset) <- "integrated"
+
+FeaturePlot(subset, "EMT_UCell")
+FeaturePlot(subset, "EMT_UCell", split.by = "sample")
+VlnPlot(subset, "EMT_UCell", split.by = "sample")
+
+subset$sample <- factor(subset$sample)
+
+SpatialFeaturePlotSingle<- function(obj, feature, metadata_column, ...){
+  all_cells<- colnames(obj)
+  groups<- levels(obj@meta.data[, metadata_column])
+  
+  # the minimal and maximal of the value to make the legend scale the same. 
+  minimal<- min(obj$EMT_UCell)
+  maximal<- max(obj$EMT_UCell)
+  ps<- list()
+  for (group in groups) {
+    subset_indx<- obj@meta.data[, metadata_column] == group
+    subset_cells<- all_cells[subset_indx]
+    obj2 <- obj[, subset_cells]
+    p<- SpatialFeaturePlot(obj2, features = feature, ...) +
+      scale_color_viridis_c(limits=c(minimal, maximal), direction = 1) +
+      ggtitle(group) +
+      theme(plot.title = element_text(size = 10, face = "bold"))
+    ps[[group]]<- p
+  }
+
+  return(ps)
+}
+
+p_list<- SpatialFeaturePlotSingle(subset, feature= "EMT_UCell", 
+                           metadata_column = "sample")
+
+layout1<-"
+AB
+#DE
+"
+wrap_plots(p_list ,guides = 'collect', design = layout1)
+
+p_list$'01_034_C1d1' + p_list$'01_034_C3d1'
+
+
+minimal<- min(subset$EMT_UCell)
+maximal<- max(subset$EMT_UCell)
+
+SpatialFeaturePlot(subset, "EMT_UCell", crop = F) +
+  scale_color_viridis_c(limits=c(minimal, maximal), direction = 1)
+
+library('STutility')
+
+FeatureOverlay(subset, features = c("LOXL1"), sampleids = c(1,2), 
+               cols = c("dodgerblue2", "seagreen3", "khaki2", "darkgoldenrod2", "brown4"), 
+               ncol = 2, pt.size = 4, value.scale = "all")
+
+
+
+SpatialFeaturePlot(subset, "EMT_UCell", crop = F,  images = c("slice1")) +
+  ggtitle("UCell EMT HALLMARK P034-Pre")
+SpatialFeaturePlot(subset, "EMT_UCell", crop = F,  images = "slice1_P034_Post.1")+
+  ggtitle("UCell EMT HALLMARK P034-Post")
+
+
+save(sc.int, file = "spatial.integrated.RData")
+
+
+
+## spatially variable genes ----
+
+sc.int <- FindSpatiallyVariableFeatures(sc.int, assay = 'SCT', 
+                                        features = VariableFeatures(sc.int)[1:1000], 
+                                        selection.method = 'markvariogram')
+
+top.features <- head(SpatiallyVariableFeatures(sc.int, selection.method = 'markvariogram'), 10)
+
+
+
 
 # end ---------------------------------------------------------------------
 sessionInfo()

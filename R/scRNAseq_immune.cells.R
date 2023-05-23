@@ -98,7 +98,7 @@ save(Tcells, file = "Tcells.RData")
 # https://github.com/carmonalab/ProjecTILs
 # https://www.nature.com/articles/s41467-021-23324-4
 
-load("Tcells.RData")
+load("data/objects/Tcells.RData")
 
 ref <- load.reference.map() # corresponds to mouse TILs, as no human available
 head(ref[[]])
@@ -292,6 +292,8 @@ plot_density(Tcells, reduction = "umap", c(
 )) # TFH
 rownames(Tcells)[grep("TRG", rownames(Tcells))]
 rownames(Tcells)[grep("TRD", rownames(Tcells))]
+
+FeaturePlot(Tcells, c("IL2RA", "CTLA4", "FOXP3", "CD4"), ncol = 2) # Tregs
 
 FeaturePlot(Tcells, "TRGC1")
 plot_density(Tcells, reduction = "umap", c(

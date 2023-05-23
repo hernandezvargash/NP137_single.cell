@@ -354,6 +354,17 @@ lapply(new.anno.list, SpatialDimPlot, label = T, label.box = T, repel = T)
 lapply(new.anno.list, SpatialFeaturePlot, c("CCR5")) # checkpoint marker
 
 
+# EMT ----
+
+output.dir <- "results/spatial/seurat/tumor.cells/"
+
+
+library(pals)
+colors <- as.vector(alphabet(n=24))
+cluster.colors = colors[1:12]
+condition.colors = c("gray","red")
+
+
 # PanCancer EMT signature (https://pubmed.ncbi.nlm.nih.gov/26420858/)
 
 PanEMT <- read.csv("data/genelists/PanCancer_EMT_signature.csv")
@@ -390,6 +401,7 @@ VlnPlot(sc.int, "PanEMT_Score1",
 ggsave(paste0(output.dir, "Violins.PanEMT.all.cells.jpeg"))
 ggsave(paste0(output.dir, "Violins.PanEMT.all.cells.pdf"))
 
+library(ggpubr)
 sc.int.34 <- subset(sc.int, sample == "01_034_C1d1" |
                     sample == "01_034_C3d1" )
 v1 <- VlnPlot(sc.int.34, "PanEMT_Score1", 
@@ -412,50 +424,167 @@ v2
 ggsave(paste0(output.dir, "Violins.PanEMT.P39.all.cells.jpeg"))
 ggsave(paste0(output.dir, "Violins.PanEMT.P39.all.cells.pdf"))
 
+library(gridExtra)
 grid.arrange(v1,v2, ncol=2)
 
 
-# only tumor cells
+# select tumor cells
 
 sample1 <- read.csv("data/spatial/histology.labels/01-034 C1D1 Tumor.csv", row.names = 1)
 sample2 <- read.csv("data/spatial/histology.labels/01-034 C3D1 Tumor.csv", row.names = 1)
+sample3 <- read.csv("data/spatial/histology.labels/01-039 C1D1 Tumor.csv", row.names = 1)
+sample4 <- read.csv("data/spatial/histology.labels/01-039 C3D1 Tumor.csv", row.names = 1)
 
 sel.cells <- c(paste0("P034_Pre_", rownames(sample1)),
-               paste0("P034_Post_", rownames(sample2)))
+               paste0("P034_Post_", rownames(sample2)),
+               paste0("P039_Pre_", rownames(sample3)),
+               paste0("P039_Post_", rownames(sample4)))
 
-subset <- subset(sc.int.34, cells = sel.cells)
-v1 <- VlnPlot(subset, "PanEMT_Score1", 
-              group.by = "sample",
-              cols = condition.colors) +
-  ggtitle("PanCancer EMT Score") +
-  stat_compare_means() + xlab("")
-v1
-ggsave(paste0(output.dir, "Violins.PanEMT.P34.tumor.cells.jpeg"))
-ggsave(paste0(output.dir, "Violins.PanEMT.P34.tumor.cells.pdf"))
+table(sc.int$integrated_snn_res.0.8)
+Idents(sc.int) <- sc.int$seurat_clusters
+sc.int <- SetIdent(sc.int, sel.cells, "Tumor cells")
+sc.int$histo <- Idents(sc.int)
+table(sc.int$histo)
+#save(sc.int , file = "data/objects/spatial/sc.int.RData")
+
+subset <- subset(sc.int, ident = "Tumor cells")
+saveRDS(subset , file = "data/objects/spatial/sc.int.tumor.cells.rds")
 
 
-sample1 <- read.csv("data/spatial/histology.labels/01-039 C1D1 Tumor.csv", row.names = 1)
-sample2 <- read.csv("data/spatial/histology.labels/01-039 C3D1 Tumor.csv", row.names = 1)
+## only tumor cells ----
 
-sel.cells <- c(paste0("P039_Pre_", rownames(sample1)),
-               paste0("P039_Post_", rownames(sample2)))
+rm(list=ls())
 
-subset <- subset(sc.int.39, cells = sel.cells)
-v2 <- VlnPlot(subset, "PanEMT_Score1", 
-              group.by = "sample",
-              cols = condition.colors) +
-  ggtitle("PanCancer EMT Score") +
-  stat_compare_means() + xlab("")
+output.dir <- "results/spatial/seurat/tumor.cells/EMT/"
 
-v2
-ggsave(paste0(output.dir, "Violins.PanEMT.P39.tumor.cells.jpeg"))
-ggsave(paste0(output.dir, "Violins.PanEMT.P39.tumor.cells.pdf"))
+condition.colors = rep(c("gray","red"), 2)
 
-head(sc.int[[]])
+subset <- readRDS("data/objects/spatial/sc.int.tumor.cells.rds")
+table(subset$Sample_ID)
+DimPlot(subset, group.by = "Sample_ID")
 
-write.csv(sc.int@meta.data, file=paste0(output.dir, "integrated.spatial.metadata.csv"))
 
-save(sc.int , file = "data/objects/spatial/sc.int.RData")
+### MsigDb Halmark ----
+
+# from: http://www.gsea-msigdb.org/gsea/msigdb/index.jsp
+
+library(msigdbr)
+gsets_msigdb <- msigdbr(species = "Homo sapiens", category = "H")
+gsets_msigdb <- gsets_msigdb[gsets_msigdb$gs_name==
+                               "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", ]
+emt.genes <- gsets_msigdb$gene_symbol # 204
+emt.genes <- intersect(emt.genes, rownames(subset)) # 189
+
+# score with AddModuleScore
+subset <- AddModuleScore(subset, 
+                        name = "EMT_score",
+                        list(emt.genes))
+
+v1 <- VlnPlot(subset, features = "EMT_score1", 
+              group.by = "Sample_ID", cols = condition.colors) +
+  ggtitle("EMT Score [Seurat]") + xlab("") +
+#  stat_compare_means() +
+  theme(axis.text.x = element_text(angle = 0, size = 16))+
+  RotatedAxis()
+
+
+# compare to UCell:
+library(UCell)
+emt.genes <- list(EMT = emt.genes)
+subset <- AddModuleScore_UCell(subset, features = emt.genes)
+signature.names <- paste0(names(emt.genes), "_UCell")
+
+v2 <- VlnPlot(subset, features = signature.names, 
+              group.by = "Sample_ID", cols = condition.colors) +
+  ggtitle("EMT Score [UCell]") + xlab("") +
+#  stat_compare_means() +
+  theme(axis.text.x = element_text(angle = 0, size = 16))+
+  RotatedAxis()
+
+v1 + v2
+grid.arrange(v1,v2, ncol = 2)
+ggsave(paste0(output.dir, "Violins.EMT.Hallmark.pdf"))
+ggsave(paste0(output.dir, "Violins.EMT.Hallmark.jpeg"))
+
+SpatialFeaturePlot(subset, "EMT_UCell")
+
+DefaultAssay(subset) <- "SCT"
+SpatialFeaturePlot(subset, "EMT_UCell", crop = F,
+                   min.cutoff = 0.1, max.cutoff = 0.3,
+                   images = c("slice1","slice1_P034_Post.1")) +
+#  ggplot2::scale_fill_continuous(limits = c(0.0,1.0), breaks = c(0.0, 0.5, 1.0)) +
+  ggtitle("UCell EMT HALLMARK P034-Pre")
+
+
+SpatialFeaturePlot(subset, "EMT_UCell", crop = F,  images = c("slice1")) +
+  ggtitle("UCell EMT HALLMARK P034-Pre")
+SpatialFeaturePlot(subset, "EMT_UCell", crop = F,  images = "slice1_P034_Post.1")+
+  ggtitle("UCell EMT HALLMARK P034-Post")
+SpatialFeaturePlot(subset, "EMT_UCell", crop = F, images = "slice1_P039_Pre.2")+
+  ggtitle("UCell EMT HALLMARK P039-Pre")
+SpatialFeaturePlot(subset, "EMT_UCell", crop = F,  images = "slice1_P039_Post.3")+
+  ggtitle("UCell EMT HALLMARK P039-Post")
+
+SpatialFeaturePlot(subset, "EMT_score1", images = "slice1")
+SpatialFeaturePlot(subset, "EMT_score1", images = "slice1_P034_Post.1")
+SpatialFeaturePlot(subset, "EMT_score1", images = "slice1_P039_Pre.2")
+SpatialFeaturePlot(subset, "EMT_score1", images = "slice1_P039_Post.3")
+
+
+### PanCancer EMT signature ----
+
+# PanCancer EMT signature (https://pubmed.ncbi.nlm.nih.gov/26420858/)
+
+PanEMT <- read.csv("data/genelists/PanCancer_EMT_signature.csv")
+head(PanEMT)
+PanEMT$Symbol # 77
+
+PanEMT <- intersect(PanEMT$Symbol, rownames(subset)) # 76
+
+subset <- AddModuleScore(subset, list(PanEMT), name = "PanEMT_Score")
+
+v1 <- VlnPlot(subset, features = "PanEMT_Score1", 
+              group.by = "Sample_ID", cols = condition.colors) +
+  ggtitle("PanCancer EMT [Seurat]") + xlab("") +
+  #  stat_compare_means() +
+  theme(axis.text.x = element_text(angle = 0, size = 16))+
+  RotatedAxis()
+
+
+# compare to UCell:
+library(UCell)
+pan.emt.genes <- list(PanEMT = PanEMT)
+subset <- AddModuleScore_UCell(subset, features = pan.emt.genes)
+signature.names <- paste0(names(pan.emt.genes), "_UCell")
+
+v2 <- VlnPlot(subset, features = signature.names, 
+              group.by = "Sample_ID", cols = condition.colors) +
+  ggtitle("PanCancer EMT [UCell]") + xlab("") +
+  #  stat_compare_means() +
+  theme(axis.text.x = element_text(angle = 0, size = 16))+
+  RotatedAxis()
+
+v1 + v2
+grid.arrange(v1,v2, ncol = 2)
+ggsave(paste0(output.dir, "Violins.EMT.PanCancer.pdf"))
+ggsave(paste0(output.dir, "Violins.EMT.PanCancer.jpeg"))
+
+SpatialFeaturePlot(subset, "PanEMT_UCell")
+SpatialFeaturePlot(subset, "PanEMT_UCell", crop = F,  images = "slice1") +
+  ggtitle("UCell EMT PanCancer P034-Pre")
+SpatialFeaturePlot(subset, "PanEMT_UCell", crop = F,  images = "slice1_P034_Post.1")+
+  ggtitle("UCell EMT PanCancer P034-Post")
+SpatialFeaturePlot(subset, "PanEMT_UCell", crop = F,  images = "slice1_P039_Pre.2")+
+  ggtitle("UCell EMT PanCancer P039-Pre")
+SpatialFeaturePlot(subset, "PanEMT_UCell", crop = F,  images = "slice1_P039_Post.3")+
+  ggtitle("UCell EMT PanCancer P039-Post")
+
+
+saveRDS(subset, file = "data/objects/spatial/sc.int.tumor.cells.rds")
+
+write.csv(subset@meta.data, file = paste0(output.dir, "tumor.metadata.csv"))
+
+
 
 
 
