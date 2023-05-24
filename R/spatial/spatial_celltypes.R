@@ -1,11 +1,9 @@
 
-# spatial scRNAseq data
+# spatial RNAseq data
 # NP137 manuscript
 # Visium for two samples, before and after therapy
 
-# https://nbisweden.github.io/workshop-scRNAseq/labs/compiled/seurat/seurat_07_spatial.html
-# https://satijalab.org/seurat/articles/spatial_vignette.html#working-with-multiple-slices-in-seurat-1
-# http://giottosuite.com/index.html
+# cell type identification
 
 
 # libraries ---------------------------------------------------------------
@@ -22,9 +20,9 @@ suppressPackageStartupMessages({
   
 })
 
+set.seed(4)
 
-setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
-
+setwd()
 
 
 # annotation -----------------------------------------------------------
@@ -34,11 +32,11 @@ setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
 rm(list=ls())
 
 # using individual spatial datasets already preprocessed
-load("spatial.list.normalized.RData")
+load("data/objects/spatial/spatial.list.normalized.RData")
 st.list <- list.samples
 
-# reference dataset
-load("sc.all.celltypes.RData")
+# reference dataset (from annotated scRNAseq experiment)
+load("data/objects/sc.all.celltypes.RData")
 Idents(sc.merged) <- sc.merged$cell_type
 
 # select x cells per subclass
@@ -92,7 +90,6 @@ table(st.list.anno$P039_Post$predicted.id)
 
 # no immune cells detected in any slide
 # mostly CAFs and tumor cells
-
 
 save(st.list.anno, file="st.list.anno.RData")
 

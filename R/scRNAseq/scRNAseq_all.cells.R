@@ -8,7 +8,7 @@
 
 rm(list=ls())
 
-setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
+setwd()
 
 suppressPackageStartupMessages({
   library(Seurat);  library(SeuratDisk);#; library(SeuratWrappers); library(SingleCellExperiment)
@@ -55,7 +55,7 @@ query <- t(query)
 query[1:10, 1:10]
 
 # download models here: http://scibet.cancer-pku.cn/download_references.html
-model <- readr::read_csv("~/Dropbox/HH/code/references/GSE115978_normal_scibet_core.csv")
+model <- readr::read_csv("/references/GSE115978_normal_scibet_core.csv")
 model <- pro.core(model)
 colnames(model)
 prd <- LoadModel(model) # generate Bet function from a model matrix
@@ -67,7 +67,7 @@ head(sc.merged[[]])
 rm(model)
 
 
-model <- readr::read_csv("~/Dropbox/HH/code/references/GSE72056_scibet_core.csv")
+model <- readr::read_csv("/references/GSE72056_scibet_core.csv")
 model <- pro.core(model)
 colnames(model)
 prd <- LoadModel(model) # generate Bet function from a model matrix

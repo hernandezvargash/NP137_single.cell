@@ -8,7 +8,7 @@
 
 rm(list=ls())
 
-setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
+setwd()
 
 suppressPackageStartupMessages({
   library(Seurat);  library(SeuratDisk)
@@ -150,6 +150,8 @@ SaveH5Seurat(Tcells.log, filename = "data/objects/Tcells.h5Seurat")
 Convert("data/objects/Tcells.h5Seurat", dest = "h5ad")
 
 
+# run shell script
+
 # or run it in R using RIRA_classification package
 
 Tcells <- RunCellTypist(
@@ -178,27 +180,6 @@ head(Tcells[[]])
 meta.Tcells <- read.csv("metadata.Tcells.celltypist.csv", row.names = 1)
 head(meta.Tcells)
 
-# this is another option
-library(zellkonverter)
-sce1=readH5AD("Tcells_celltypist.h5ad", verbose = TRUE)
-adata_Seurat <- as.Seurat(sce1, counts = "X", data = NULL)
-head(adata_Seurat[[]])
-DimPlot(adata_Seurat, label = T, repel = T,
-        group.by = "majority_voting") + NoLegend()
-
-# this didn't work
-
-Convert("immune_celltypist.h5ad", dest = "h5seurat", overwrite = TRUE)
-test <- LoadH5Seurat("immune_celltypist.h5seurat")
-head(test[[]])
-
-library("Seurat")
-library("anndata")
-print("Convert from Scanpy to Seurat...")
-data <- read_h5ad("immune_celltypist.h5ad")
-data <- CreateSeuratObject(counts = t(data$X), meta.data = data$obs)
-print(str(data))
-
 
 
 ## new categories ----
@@ -226,7 +207,7 @@ DimPlot(Tcells, group.by = "SingleR_fine",
 # as gammadelta by SingleR_fine
 
 
-# known markers
+# manually check known markers
 
 cat.colors <- as.vector(alphabet2())
 DimPlot(Tcells, cols = cat.colors[1:10])

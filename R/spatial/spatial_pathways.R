@@ -1,11 +1,9 @@
 
-# spatial scRNAseq data
+# spatial RNAseq data
 # NP137 manuscript
 # Visium for two samples, before and after therapy
 
-# https://nbisweden.github.io/workshop-scRNAseq/labs/compiled/seurat/seurat_07_spatial.html
-# https://satijalab.org/seurat/articles/spatial_vignette.html#working-with-multiple-slices-in-seurat-1
-# http://giottosuite.com/index.html
+# Differential expression and pathway analyses
 
 
 # libraries ---------------------------------------------------------------
@@ -22,8 +20,9 @@ suppressPackageStartupMessages({
   
 })
 
+set.seed(4)
 
-setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
+setwd()
 
 output.dir <- "results/spatial/seurat/all.cells/"
 
@@ -93,7 +92,9 @@ Idents(sc.int) <- "Sample_ID"
 DefaultAssay(sc.int) <- "Spatial"
 
 
-## Patient 1 ----
+## Upregulated pathways ----
+
+### Patient 1 ----
 
 sc.sel <- subset(sc.int, ident = c("P034_Pre","P034_Post"), invert = F)
 
@@ -130,7 +131,7 @@ for (level in levels(factor(sc.sel$celltype))){
 
 
 
-## Patient 2 ----
+### Patient 2 ----
 
 sc.sel <- subset(sc.int, ident = c("P039_Pre","P039_Post"), invert = F)
 
@@ -165,10 +166,10 @@ for (level in levels(factor(sc.sel$celltype))){
   })
 }
 
-# pathways down
 
+## Downregulated pathways ----
 
-## Patient 1 ----
+### Patient 1 ----
 
 sc.sel <- subset(sc.int, ident = c("P034_Pre","P034_Post"), invert = F)
 
@@ -205,7 +206,7 @@ for (level in levels(factor(sc.sel$celltype))){
 
 
 
-## Patient 2 ----
+### Patient 2 ----
 
 sc.sel <- subset(sc.int, ident = c("P039_Pre","P039_Post"), invert = F)
 
@@ -240,25 +241,6 @@ for (level in levels(factor(sc.sel$celltype))){
   })
 }
 
-
-
-# ssGSEA ----
-
-# this doesn't work, as counts are needed
-
-
-gene.sets <- getGeneSets(species = "Homo sapiens", library = "H", subcategory = NULL)
-names(gene.sets)
-
-DefaultAssay(sc.int) <- "Spatial"
-DefaultAssay(sc.int) <- "integrated"
-DefaultAssay(sc.int) <- "SCT"
-
-ES <- enrichIt(obj = sc.int, 
-               method = "ssGSEA", # "Ucell",
-               gene.sets = gene.sets, 
-               groups = 1000, cores = 4, 
-               min.size = 20)
 
 
 

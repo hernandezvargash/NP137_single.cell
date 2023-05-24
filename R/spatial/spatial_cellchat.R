@@ -1,9 +1,9 @@
 
-# spatial cellchat
+# spatial RNAseq data
+# NP137 manuscript
+# Visium for two samples, before and after therapy
 
-# immune profiling with spatial scRNAseq data
-# revision to NP137 manuscript
-# Visium avant (C1D1) et après traitement (C3D1)
+# spatial cellchat
 
 
 # libraries ---------------------------------------------------------------
@@ -23,14 +23,16 @@ options(stringsAsFactors = FALSE)
 
 set.seed(4)
 
-setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell/spatial")
+setwd()
 
 
 # run cell chat in each sample --------------------------------------------------------------------
 
 load("st.list.anno.manual.RData")
 names <- names(new.anno.list)
-image.dirs <- list.files(path = "~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell/Nicolas/Visium", full.names = T)
+image.dirs <- list.files(path = "/Visium", full.names = T)
+
+# CD4 and CD8 T cells are grouped because of their low numbers
 
 for(i in 1:length(new.anno.list)){
   

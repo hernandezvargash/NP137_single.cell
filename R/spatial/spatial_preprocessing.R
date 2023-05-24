@@ -1,8 +1,9 @@
 
-# spatial scRNAseq data
+# spatial RNAseq data
 # NP137 manuscript
 # Visium for two samples, before and after therapy
 
+# Reference workflows:
 # https://nbisweden.github.io/workshop-scRNAseq/labs/compiled/seurat/seurat_07_spatial.html
 # https://satijalab.org/seurat/articles/spatial_vignette.html#working-with-multiple-slices-in-seurat-1
 # http://giottosuite.com/index.html
@@ -22,8 +23,9 @@ suppressPackageStartupMessages({
   
 })
 
+set.seed(4)
 
-setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
+setwd()
 
 
 
@@ -34,9 +36,8 @@ setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
 
 list.files()
 
-samples <- list.dirs(path = "Nicolas/Visium/", full.names = F, recursive = F)
-
-data.dir <- list.dirs(path = "Nicolas/Visium", full.names = T, recursive = F)
+samples <- list.dirs(path = "Visium/", full.names = F, recursive = F)
+data.dir <- list.dirs(path = "Visium", full.names = T, recursive = F)
 
 list.samples <- list()
 for(i in 1:length(samples)){
@@ -57,10 +58,6 @@ lapply(list.samples, dim)
 list.samples <- lapply(X = list.samples, FUN = PercentageFeatureSet, pattern = "^MT-", col.name = "percent.mt")
 list.samples <- lapply(X = list.samples, FUN = PercentageFeatureSet, pattern = "^HB-", col.name = "percent.hb")
 list.samples <- lapply(X = list.samples, FUN = PercentageFeatureSet, pattern = "^RP[SL]", col.name = "percent.ribo")
-
-head(list.samples[[2]])
-rownames(list.samples[[1]])[grep("^MT-", rownames(list.samples[[1]]))]
-# no mt hb or rp genes present
 
 VlnPlot(list.samples[[3]], features = c("nCount_Spatial", "nFeature_Spatial", 
                                         "percent.mt", "percent.ribo",
@@ -105,7 +102,7 @@ list.samples <- lapply(list.samples, FindNeighbors, reduction = "pca", dims = 1:
 list.samples <- lapply(list.samples, FindClusters, resolution = 1.2, verbose = FALSE) # increased resolution
 list.samples <- lapply(list.samples, RunUMAP, reduction = "pca", dims = 1:30)
 
-save(list.samples, file="spatial.list.normalized.RData")
+save(list.samples, file="data/objects/spatial/spatial.list.normalized.RData")
 
 
 
@@ -188,12 +185,8 @@ SpatialDimPlot(sc.all, cells.highlight = CellsByIdentities(sc.all),
                ncol = 5)
 
 
+save(sc.all, file = "data/objects/spatial/spatial.all.RData")
 
-save(sc.all, file = "spatial.all.RData")
-
-
-
-# consider integration
 
 
 
@@ -201,7 +194,7 @@ save(sc.all, file = "spatial.all.RData")
 
 rm(list=ls())
 
-load("spatial.all.RData")
+load("data/objects/spatial/spatial.all.RData")
 
 st.list <- SplitObject(sc.all, split.by = "Sample_ID")
 st.list <- lapply(st.list, SCTransform, assay = "Spatial", method = "poisson")
@@ -233,7 +226,7 @@ DimPlot(sc.int, reduction = "umap", split.by = "Sample_ID")
 SpatialDimPlot(sc.int)
 
 
-save(sc.int, file = "spatial.integrated.RData")
+save(sc.int, file = "data/objects/spatial/spatial.integrated.RData")
 
 
 
@@ -316,6 +309,7 @@ table(sc.int$histo, sc.int$sample)
 subset <- subset(sc.int, ident = "Tumor cells")
 saveRDS(subset , file = "data/objects/spatial/integrated_P034_tumor.cells.rds")
 
+
 ### MsigDb Halmark ----
 
 # from: http://www.gsea-msigdb.org/gsea/msigdb/index.jsp
@@ -375,7 +369,7 @@ DefaultAssay(subset) <- "Spatial"
 
 p <- SpatialFeaturePlot(subset, "EMT_UCell", crop = F)
 
-p + ggplot2::scale_fill_continuous(limits = c(0.0,10.0),, breaks = c(0.0, 5.0, 1.0))
+p + ggplot2::scale_fill_continuous(limits = c(0.0,10.0), breaks = c(0.0, 5.0, 1.0))
 
 
 

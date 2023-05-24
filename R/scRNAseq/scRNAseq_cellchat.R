@@ -1,10 +1,10 @@
 
 # intro -------------------------------------------------------------------
 
-# immune profiling with scRNAseq data
+# scRNAseq data
 # revision to NP137 manuscript
 
-# cell:cell communication on scRNAseq data
+# cell:cell communication with cellchat
 
 
 
@@ -12,7 +12,7 @@
 
 rm(list=ls())
 
-setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
+setwd()
 
 suppressPackageStartupMessages({
   library(Seurat);  library(SeuratDisk);#; library(SeuratWrappers); library(SingleCellExperiment)
@@ -33,7 +33,6 @@ suppressPackageStartupMessages({
   library(ProjecTILs)
   library(ComplexHeatmap)
   library(CellChat)
-  
   
 })
 
@@ -92,7 +91,7 @@ save(sc.merged, file="data/objects/sc.all.celltypes.RData")
 
 
 
-# individual 1 ----------------------------------
+# all cell types ----------------------------------
 
 #rm(list=ls())
 
@@ -179,7 +178,7 @@ save(cellchat.2, file = "data/objects/cellchat.C3D1.RData")
 
 
 
-# individual 2 ----------------------------------
+# all immune ----------------------------------
 
 rm(list = ls())
 
@@ -284,7 +283,7 @@ save(cellchat.2, file = "data/objects/cellchat.2.C3D1.RData")
 
 
 
-# individual 3 ----------------------------------
+# T cells ----------------------------------
 
 rm(list = ls())
 
@@ -386,7 +385,7 @@ save(cellchat.2, file = "data/objects/cellchat.3.C3D1.RData")
 
 
 
-# individual 4 ----------------------------------
+# APCs ----------------------------------
 
 rm(list = ls())
 
@@ -912,7 +911,7 @@ sp2a[sp2a$pathway_name%in%int1, ]
 sp1b[sp1b$pathway_name%in%int1, ]
 sp2b[sp2b$pathway_name%in%int1, ]
 
-# MHC-I seems the most consistent finding
+# MHC-I seems one of the most consistent findings
 
 
 

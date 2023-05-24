@@ -8,7 +8,7 @@
 
 rm(list=ls())
 
-setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
+setwd()
 
 suppressPackageStartupMessages({
   library(Seurat);  

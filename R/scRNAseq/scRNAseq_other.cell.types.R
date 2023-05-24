@@ -1,9 +1,9 @@
 
 # intro -------------------------------------------------------------------
 
-# immune profiling, NP137 manuscript
+# NP137 manuscript
 
-# Macrophages, CAFs
+# Macrophages, CAFs and endothelial cells
 
 
 
@@ -11,7 +11,7 @@
 
 rm(list=ls())
 
-setwd("~/Dropbox/BioInfo/Colabs/Mehlen/NP137_single.cell")
+setwd()
 
 suppressPackageStartupMessages({
   library(Seurat);  
